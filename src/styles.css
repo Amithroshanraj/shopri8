@@ -1,0 +1,299 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * SHOPRi8 design system — premium futuristic purple + glassmorphism.
+ * All colors are oklch tokens. Never hardcode colors in components.
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-deep: var(--deep);
+  --color-violet: var(--violet);
+  --color-soft-violet: var(--soft-violet);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  --radius: 1rem;
+
+  /* Core surfaces */
+  --background: oklch(0.13 0.043 295);
+  --foreground: oklch(1 0 0);
+  --card: oklch(0.19 0.05 295);
+  --card-foreground: oklch(1 0 0);
+  --popover: oklch(0.17 0.048 295);
+  --popover-foreground: oklch(1 0 0);
+
+  /* Purple system */
+  --primary: oklch(0.55 0.243 296.5); /* #7C3AED */
+  --primary-foreground: oklch(1 0 0);
+  --deep: oklch(0.35 0.204 293.7); /* #4C1D95 */
+  --violet: oklch(0.62 0.196 297.3); /* #8B5CF6 */
+  --soft-violet: oklch(0.74 0.14 297.7); /* #A78BFA */
+  --accent: oklch(0.77 0.15 310); /* #C084FC */
+  --accent-foreground: oklch(0.16 0.05 295);
+
+  --secondary: oklch(0.25 0.06 295);
+  --secondary-foreground: oklch(0.96 0.01 300);
+  --muted: oklch(0.24 0.05 295);
+  --muted-foreground: oklch(0.77 0.03 300); /* #B8B2C8 */
+
+  --destructive: oklch(0.62 0.23 20);
+  --destructive-foreground: oklch(1 0 0);
+  --success: oklch(0.72 0.18 155);
+  --success-foreground: oklch(0.15 0.04 295);
+  --warning: oklch(0.8 0.16 80);
+  --warning-foreground: oklch(0.15 0.04 295);
+
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.62 0.196 297.3);
+
+  --chart-1: oklch(0.55 0.243 296.5);
+  --chart-2: oklch(0.74 0.14 297.7);
+  --chart-3: oklch(0.77 0.15 310);
+  --chart-4: oklch(0.72 0.18 155);
+  --chart-5: oklch(0.8 0.16 80);
+
+  --sidebar: oklch(0.17 0.048 295);
+  --sidebar-foreground: oklch(1 0 0);
+  --sidebar-primary: oklch(0.55 0.243 296.5);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.25 0.06 295);
+  --sidebar-accent-foreground: oklch(1 0 0);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.62 0.196 297.3);
+
+  /* Glass system */
+  --glass-1: oklch(1 0 0 / 5%);
+  --glass-2: oklch(1 0 0 / 8%);
+  --glass-3: oklch(1 0 0 / 12%);
+  --glass-border: oklch(1 0 0 / 12%);
+  --glow-primary:
+    0 0 0 1px oklch(0.55 0.243 296.5 / 25%), 0 18px 45px -18px oklch(0.55 0.243 296.5 / 65%);
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    color-scheme: dark;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    overflow-x: hidden;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+}
+
+/* Ambient purple environment behind the whole app */
+@utility app-ambience {
+  position: relative;
+  isolation: isolate;
+  background-color: var(--background);
+
+  &::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(60rem 40rem at 8% -8%, oklch(0.55 0.243 296.5 / 30%), transparent 60%),
+      radial-gradient(45rem 35rem at 105% 10%, oklch(0.77 0.15 310 / 18%), transparent 62%),
+      radial-gradient(50rem 40rem at 50% 115%, oklch(0.35 0.204 293.7 / 35%), transparent 65%);
+  }
+}
+
+@utility glass-1 {
+  background-color: var(--glass-1);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+@utility glass-2 {
+  background-color: var(--glass-2);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 12px 30px -20px oklch(0 0 0 / 80%);
+}
+
+@utility glass-3 {
+  background-color: var(--glass-3);
+  border: 1px solid oklch(1 0 0 / 18%);
+  backdrop-filter: blur(26px);
+  -webkit-backdrop-filter: blur(26px);
+  box-shadow: var(--glow-primary);
+}
+
+@utility glow-primary {
+  box-shadow: var(--glow-primary);
+}
+
+@utility text-gradient {
+  background-image: linear-gradient(100deg, var(--soft-violet), var(--accent) 55%, var(--violet));
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+@utility surface-gradient {
+  background-image: linear-gradient(
+    145deg,
+    oklch(0.55 0.243 296.5 / 22%),
+    oklch(0.35 0.204 293.7 / 10%)
+  );
+}
+
+@utility press {
+  transition:
+    transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 200ms ease,
+    background-color 200ms ease;
+
+  &:active {
+    transform: scale(0.96);
+  }
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@utility animate-pop-in {
+  animation: pop-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes cart-bump {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@utility animate-cart-bump {
+  animation: cart-bump 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes carousel {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-33.33%);
+  }
+}
+
+@utility animate-carousel {
+  animation: carousel 40s linear infinite;
+}
+
+@utility animate-carousel-paused {
+  animation-play-state: paused;
+}
+
+/* Leaflet dark treatment */
+.leaflet-container {
+  background: var(--background);
+  font-family: var(--font-sans);
+}
+
+.leaflet-tile-pane {
+  filter: invert(1) hue-rotate(185deg) brightness(0.82) contrast(0.92) saturate(0.7);
+}
+
+.leaflet-control-attribution {
+  background: oklch(0.13 0.043 295 / 70%) !important;
+  color: var(--muted-foreground) !important;
+}
+
+.leaflet-control-attribution a {
+  color: var(--soft-violet) !important;
+}

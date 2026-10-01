@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Lock, Mail, Store } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { useRetailerAuth } from "@/lib/retailerAuth";
+import { DEMO_RETAILER_CREDENTIALS, useRetailerAuth } from "@/lib/retailerAuth";
 import { isFirebaseConfigured } from "@/lib/firebase/config";
 import { Wordmark } from "@/components/brand/Wordmark";
 
@@ -21,8 +21,8 @@ export const Route = createFileRoute("/retailer/login")({
 function RetailerLogin() {
   const navigate = useNavigate();
   const { login, isAuthenticated } = useRetailerAuth();
-  const [email, setEmail] = useState("retailer@greenbasket.com");
-  const [password, setPassword] = useState("retailer123");
+  const [email, setEmail] = useState<string>(DEMO_RETAILER_CREDENTIALS.email);
+  const [password, setPassword] = useState<string>(DEMO_RETAILER_CREDENTIALS.password);
   const [loading, setLoading] = useState(false);
 
   // Redirect if already authenticated
@@ -59,8 +59,8 @@ function RetailerLogin() {
   };
 
   const handleFillDemo = () => {
-    setEmail("retailer@greenbasket.com");
-    setPassword("retailer123");
+    setEmail(DEMO_RETAILER_CREDENTIALS.email);
+    setPassword(DEMO_RETAILER_CREDENTIALS.password);
   };
 
   return (
@@ -93,9 +93,14 @@ function RetailerLogin() {
               </button>
             </div>
             <p className="mt-1 text-muted-foreground">
-              Firebase is not connected yet. You can sign in using demo credentials or any
-              email/password.
+              Firebase is not connected yet. Use the Green Basket demo credentials to sign in.
             </p>
+            <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[0.7rem] text-foreground">
+              <dt className="text-muted-foreground">Email</dt>
+              <dd>{DEMO_RETAILER_CREDENTIALS.email}</dd>
+              <dt className="text-muted-foreground">Password</dt>
+              <dd>{DEMO_RETAILER_CREDENTIALS.password}</dd>
+            </dl>
           </div>
         )}
 

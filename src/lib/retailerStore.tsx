@@ -8,6 +8,12 @@ export const DEMO_SHOP_ID = "shop-green-basket";
 const SHOP_STORAGE_KEY = "shopri8.retailer.shop.v1";
 const PRODUCTS_STORAGE_KEY = "shopri8.retailer.products.v1";
 const ORDERS_STORAGE_KEY = "shopri8.orders.v1";
+const RETAILER_ORDER_TRANSITIONS: Partial<Record<Order["orderStatus"], Order["orderStatus"][]>> = {
+  PLACED: ["RETAILER_REVIEW"],
+  RETAILER_REVIEW: ["ACCEPTED", "REJECTED"],
+  ACCEPTED: ["PREPARING"],
+  PREPARING: ["READY_FOR_PICKUP"],
+};
 
 // Default initial demo products
 const INITIAL_PRODUCTS: Product[] = [...PRODUCTS.filter((p) => p.shopId === DEMO_SHOP_ID)];
@@ -183,55 +189,16 @@ const INITIAL_ORDERS: Order[] = [
 
 // Helper to read initial shop
 function loadInitialShop(): Shop {
-  const fallback: Shop = SHOPS.find((s) => s.ownerId === DEMO_RETAILER_ID) ?? SHOPS[0]!;
-  if (typeof window === "undefined") return fallback;
-  try {
-    const raw = localStorage.getItem(SHOP_STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as Shop;
-  } catch {
-    // ignore
-  }
-  return fallback;
+  return SHOPS.find((s) => s.ownerId === DEMO_RETAILER_ID) ?? SHOPS[0]!;
 }
 
 // Helper to read initial products
 function loadInitialProducts(): Product[] {
-  if (typeof window === "undefined") return INITIAL_PRODUCTS;
-  try {
-    const raw = localStorage.getItem(PRODUCTS_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Product[];
-      if (parsed.length > 0) return parsed;
-    }
-  } catch {
-    // ignore
-  }
   return INITIAL_PRODUCTS;
 }
 
 // Helper to read initial orders for this shop
-function loadInitialOrders(shopId: string): Order[] {
-  if (typeof window === "undefined") return INITIAL_ORDERS;
-  try {
-    const raw = localStorage.getItem(ORDERS_STORAGE_KEY);
-    if (raw) {
-      const allOrders = JSON.parse(raw) as Order[];
-      const shopOrders = allOrders.filter((o) => o.shopId === shopId);
-      if (shopOrders.length > 0) {
-        return allOrders;
-      }
-      // If customer has some orders but none for this shop, combine them
-      const merged = [...allOrders, ...INITIAL_ORDERS];
-      localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(merged));
-      return merged;
-    } else {
-      // First time initialization
-      localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(INITIAL_ORDERS));
-      return INITIAL_ORDERS;
-    }
-  } catch {
-    // ignore
-  }
+function loadInitialOrders(): Order[] {
   return INITIAL_ORDERS;
 }
 
@@ -247,27 +214,76 @@ const initialShop = loadInitialShop();
 let storeState: StoreState = {
   shop: initialShop,
   products: loadInitialProducts(),
-  orders: loadInitialOrders(initialShop.id),
+  orders: loadInitialOrders(),
   loading: false,
 };
 
 const storeListeners = new Set<(s: StoreState) => void>();
+let hasHydratedStore = false;
 
 function notifyStoreListeners() {
   storeListeners.forEach((l) => l(storeState));
+}
+
+function hydrateStoreFromStorage() {
+  if (hasHydratedStore || typeof window === "undefined") return;
+  hasHydratedStore = true;
+
+  let shop = storeState.shop;
+  let products = storeState.products;
+  let orders = storeState.orders;
+
+  try {
+    const rawShop = localStorage.getItem(SHOP_STORAGE_KEY);
+    if (rawShop) shop = JSON.parse(rawShop) as Shop;
+  } catch {
+    // Keep demo shop data when stored data is invalid.
+  }
+
+  try {
+    const rawProducts = localStorage.getItem(PRODUCTS_STORAGE_KEY);
+    if (rawProducts) {
+      const storedProducts = JSON.parse(rawProducts) as Product[];
+      if (Array.isArray(storedProducts)) products = storedProducts;
+    }
+  } catch {
+    // Keep demo products when stored data is invalid.
+  }
+
+  try {
+    const rawOrders = localStorage.getItem(ORDERS_STORAGE_KEY);
+    if (rawOrders) {
+      const storedOrders = JSON.parse(rawOrders) as Order[];
+      if (Array.isArray(storedOrders)) {
+        orders = storedOrders.some((order) => order.shopId === shop.id)
+          ? storedOrders
+          : [...storedOrders, ...INITIAL_ORDERS];
+        if (!storedOrders.some((order) => order.shopId === shop.id)) {
+          localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(orders));
+        }
+      }
+    } else {
+      localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(orders));
+    }
+  } catch {
+    // Keep demo orders when stored data is invalid or unavailable.
+  }
+
+  storeState = { ...storeState, shop, products, orders };
+  notifyStoreListeners();
 }
 
 export function useRetailerStore() {
   const [state, setState] = useState<StoreState>(storeState);
 
   useEffect(() => {
-    setState(storeState);
-
     const listener = (next: StoreState) => {
       setState(next);
     };
 
     storeListeners.add(listener);
+    setState(storeState);
+    hydrateStoreFromStorage();
 
     const onStorage = (e: StorageEvent) => {
       if (e.key === SHOP_STORAGE_KEY && e.newValue) {
@@ -310,6 +326,9 @@ export function useRetailerStore() {
   // Update order status and sync across application
   const updateOrderStatus = useCallback(
     (orderId: string, newStatus: Order["orderStatus"], rejectionReason?: string) => {
+      const order = storeState.orders.find((currentOrder) => currentOrder.id === orderId);
+      if (!order || !RETAILER_ORDER_TRANSITIONS[order.orderStatus]?.includes(newStatus)) return;
+
       const now = new Date().toISOString();
       const updatedAllOrders = storeState.orders.map((o) => {
         if (o.id !== orderId) return o;
@@ -339,6 +358,7 @@ export function useRetailerStore() {
       const now = new Date().toISOString();
       const newProduct: Product = {
         ...productData,
+        availability: productData.stock > 0 && productData.availability,
         id: `prod-${Date.now()}`,
         shopId: storeState.shop.id,
         createdAt: now,
@@ -363,14 +383,8 @@ export function useRetailerStore() {
     const nextProducts = storeState.products.map((p) => {
       if (p.id !== productId) return p;
       const updated = { ...p, ...updates, updatedAt: now };
-      // If stock is set to 0, mark as unavailable by default unless explicitly provided
-      if (updates.stock !== undefined && updates.availability === undefined) {
-        if (updates.stock === 0) {
-          updated.availability = false;
-        } else if (!p.availability && updates.stock > 0) {
-          updated.availability = true;
-        }
-      }
+      if (updates.stock !== undefined) updated.stock = Math.max(0, updates.stock);
+      if (updated.stock === 0) updated.availability = false;
       return updated;
     });
 
@@ -410,10 +424,7 @@ export function useRetailerStore() {
   // Update stock shortcut
   const updateStock = useCallback(
     (productId: string, newStock: number) => {
-      updateProduct(productId, {
-        stock: Math.max(0, newStock),
-        availability: newStock > 0,
-      });
+      updateProduct(productId, { stock: Math.max(0, newStock) });
     },
     [updateProduct],
   );

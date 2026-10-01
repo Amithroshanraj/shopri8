@@ -114,6 +114,7 @@ function RetailerShop() {
 
   const handleToggleStoreStatus = () => {
     const nextStatus = shop.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+    setFormData((current) => ({ ...current, status: nextStatus }));
     if (nextStatus === "ACTIVE") {
       openShop();
       toast.success("Shop Opened", { description: "Customers can now view and place orders." });

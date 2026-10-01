@@ -38,6 +38,16 @@ export function getFirebaseAuth(): Auth | null {
   return instance ? getAuth(instance) : null;
 }
 
+export function getRetailerFirebaseAuth(): Auth | null {
+  const instance = getFirebaseApp();
+  if (!instance) return null;
+
+  const retailerApp =
+    getApps().find((candidate) => candidate.name === "retailer") ??
+    initializeApp(instance.options, "retailer");
+  return getAuth(retailerApp);
+}
+
 export function getDb(): Firestore | null {
   const instance = getFirebaseApp();
   return instance ? getFirestore(instance) : null;

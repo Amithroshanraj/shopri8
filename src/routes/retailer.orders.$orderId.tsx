@@ -31,9 +31,12 @@ export const Route = createFileRoute("/retailer/orders/$orderId")({
 
 const PROGRESS_STEPS: OrderStatus[] = [
   "PLACED",
+  "RETAILER_REVIEW",
   "ACCEPTED",
   "PREPARING",
   "READY_FOR_PICKUP",
+  "PICKED_UP",
+  "OUT_FOR_DELIVERY",
   "DELIVERED",
 ];
 
@@ -65,7 +68,8 @@ function RetailerOrderDetails() {
     );
   }
 
-  const isPlaced = order.orderStatus === "PLACED" || order.orderStatus === "RETAILER_REVIEW";
+  const isPlaced = order.orderStatus === "PLACED";
+  const isInReview = order.orderStatus === "RETAILER_REVIEW";
   const isAccepted = order.orderStatus === "ACCEPTED";
   const isPreparing = order.orderStatus === "PREPARING";
   const isReady = order.orderStatus === "READY_FOR_PICKUP";
@@ -74,6 +78,18 @@ function RetailerOrderDetails() {
   const isDelivered = order.orderStatus === "DELIVERED";
 
   // Actions
+  const handleStartReview = () => {
+    setIsProcessing(true);
+    try {
+      updateOrderStatus(order.id, "RETAILER_REVIEW");
+      toast.success("Order Under Review", {
+        description: `Order ${order.id} is ready for an accept or reject decision.`,
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleAccept = () => {
     setIsProcessing(true);
     try {
@@ -206,7 +222,7 @@ function RetailerOrderDetails() {
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">
             Order Progress
           </h2>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
             {PROGRESS_STEPS.map((step, idx) => {
               const isPast = currentStepIndex !== -1 && idx <= currentStepIndex;
               const isCurrent = order.orderStatus === step;
@@ -299,6 +315,16 @@ function RetailerOrderDetails() {
             </h3>
 
             {isPlaced && (
+              <button
+                onClick={handleStartReview}
+                disabled={isProcessing}
+                className="press w-full rounded-2xl bg-primary py-3 px-4 text-sm font-semibold text-primary-foreground shadow-md transition-all hover:bg-primary/90 disabled:opacity-50"
+              >
+                Review Order
+              </button>
+            )}
+
+            {isInReview && (
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
                   onClick={handleAccept}

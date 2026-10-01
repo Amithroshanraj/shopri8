@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Clock, LogOut, Mail, MapPin, Phone, ShieldCheck, Store, User } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useRetailerAuth } from "@/lib/retailerAuth";
 import { useRetailerStore } from "@/lib/retailerStore";
@@ -18,8 +19,31 @@ export const Route = createFileRoute("/retailer/profile")({
 
 function RetailerProfile() {
   const navigate = useNavigate();
-  const { user, logout } = useRetailerAuth();
+  const { user, logout, updateProfile } = useRetailerAuth();
   const { shop } = useRetailerStore();
+  const [isEditing, setIsEditing] = useState(false);
+  const [displayName, setDisplayName] = useState(user?.displayName || user?.name || "");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setDisplayName(user?.displayName || user?.name || "");
+  }, [user]);
+
+  const handleProfileSave = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      await updateProfile(displayName);
+      setIsEditing(false);
+      toast.success("Profile updated");
+    } catch (error) {
+      toast.error("Could not update profile", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -59,6 +83,15 @@ function RetailerProfile() {
             </div>
             <p className="text-xs text-muted-foreground truncate mt-0.5">{user?.email}</p>
           </div>
+          {!isEditing && (
+            <button
+              type="button"
+              onClick={() => setIsEditing(true)}
+              className="press rounded-xl border border-border px-3 py-2 text-xs font-semibold text-foreground hover:bg-accent"
+            >
+              Edit Profile
+            </button>
+          )}
         </div>
 
         <div className="divide-y divide-border/40 border-t border-border/50 pt-2 text-xs">
@@ -89,6 +122,45 @@ function RetailerProfile() {
             </span>
           </div>
         </div>
+
+        {isEditing && (
+          <form onSubmit={handleProfileSave} className="space-y-3 border-t border-border/50 pt-4">
+            <div>
+              <label
+                htmlFor="retailer-display-name"
+                className="mb-1.5 block text-xs font-medium text-foreground"
+              >
+                Retailer Name
+              </label>
+              <input
+                id="retailer-display-name"
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+                required
+                className="w-full rounded-xl border border-input bg-background/50 px-4 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setDisplayName(user?.displayName || user?.name || "");
+                  setIsEditing(false);
+                }}
+                className="press flex-1 rounded-xl border border-border py-2.5 text-xs font-medium text-foreground hover:bg-accent"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="press flex-1 rounded-xl bg-primary py-2.5 text-xs font-semibold text-primary-foreground disabled:opacity-50"
+              >
+                {saving ? "Saving..." : "Save Profile"}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
 
       {/* Linked Shop Card */}

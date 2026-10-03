@@ -167,10 +167,8 @@ export interface Payment {
 }
 
 export const DELIVERY_TASK_FLOW = [
-  "CREATED",
   "AVAILABLE",
-  "ACCEPTED",
-  "ARRIVED_AT_SHOP",
+  "DELIVERY_ASSIGNED",
   "PICKED_UP",
   "OUT_FOR_DELIVERY",
   "DELIVERED",
@@ -189,6 +187,9 @@ export interface DeliveryTask {
   status: DeliveryTaskStatus;
   distance: number;
   deliveryFee: number;
+  failureReason?: string;
+  failureNotes?: string;
+  failureAt?: string;
   createdAt?: string;
   updatedAt?: string;
 }

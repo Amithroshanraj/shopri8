@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Address, Order } from "./types";
 import { DEMO_CENTER } from "@/data/demo";
+import { announceOrdersUpdated, ORDERS_STORAGE_KEY, ORDERS_UPDATED_EVENT } from "./orderSync";
 
 /**
  * On-device store for addresses and orders while Firebase is not connected.
@@ -17,17 +18,33 @@ function useLocalList<T>(key: string) {
       /* ignore */
     }
     setReady(true);
+    const syncItems = () => {
+      try {
+        const raw = localStorage.getItem(key);
+        setItems(raw ? (JSON.parse(raw) as T[]) : []);
+      } catch {
+        setItems([]);
+      }
+    };
     const onStorage = (e: StorageEvent) => {
-      if (e.key === key && e.newValue) setItems(JSON.parse(e.newValue) as T[]);
+      if (e.key === key) syncItems();
+    };
+    const onOrdersUpdated = () => {
+      if (key === ORDERS_STORAGE_KEY) syncItems();
     };
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    window.addEventListener(ORDERS_UPDATED_EVENT, onOrdersUpdated);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(ORDERS_UPDATED_EVENT, onOrdersUpdated);
+    };
   }, [key]);
   const save = useCallback(
     (updater: (prev: T[]) => T[]) => {
       setItems((prev) => {
         const next = updater(prev);
         localStorage.setItem(key, JSON.stringify(next));
+        if (key === ORDERS_STORAGE_KEY) announceOrdersUpdated();
         return next;
       });
     },

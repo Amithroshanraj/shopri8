@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AddressesRouteImport } from './routes/addresses'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as CartRouteImport } from './routes/cart'
 import { Route as CategoriesRouteImport } from './routes/categories'
@@ -19,6 +20,17 @@ import { Route as MapRouteImport } from './routes/map'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as RetailerRouteImport } from './routes/retailer'
 import { Route as SearchRouteImport } from './routes/search'
+import { Route as WorkerRouteImport } from './routes/worker'
+import { Route as AdminDashboardRouteImport } from './routes/admin.dashboard'
+import { Route as AdminDeliveryRouteImport } from './routes/admin.delivery'
+import { Route as AdminLoginRouteImport } from './routes/admin.login'
+import { Route as AdminOrdersRouteImport } from './routes/admin.orders'
+import { Route as AdminProductsRouteImport } from './routes/admin.products'
+import { Route as AdminProfileRouteImport } from './routes/admin.profile'
+import { Route as AdminRetailersRouteImport } from './routes/admin.retailers'
+import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
+import { Route as AdminShopsRouteImport } from './routes/admin.shops'
+import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as OrdersIndexRouteImport } from './routes/orders.index'
 import { Route as OrdersOrderIdRouteImport } from './routes/orders.$orderId'
 import { Route as ProductsProductIdRouteImport } from './routes/products.$productId'
@@ -28,10 +40,21 @@ import { Route as RetailerLoginRouteImport } from './routes/retailer.login'
 import { Route as RetailerProfileRouteImport } from './routes/retailer.profile'
 import { Route as RetailerShopRouteImport } from './routes/retailer.shop'
 import { Route as ShopsShopIdRouteImport } from './routes/shops.$shopId'
+import { Route as WorkerDashboardRouteImport } from './routes/worker.dashboard'
+import { Route as WorkerLoginRouteImport } from './routes/worker.login'
+import { Route as WorkerProfileRouteImport } from './routes/worker.profile'
+import { Route as AdminDeliveryTaskIdRouteImport } from './routes/admin.delivery.$taskId'
+import { Route as AdminOrdersOrderIdRouteImport } from './routes/admin.orders.$orderId'
+import { Route as AdminProductsProductIdRouteImport } from './routes/admin.products.$productId'
+import { Route as AdminRetailersRetailerIdRouteImport } from './routes/admin.retailers.$retailerId'
+import { Route as AdminShopsShopIdRouteImport } from './routes/admin.shops.$shopId'
+import { Route as AdminUsersUserIdRouteImport } from './routes/admin.users.$userId'
 import { Route as RetailerOrdersIndexRouteImport } from './routes/retailer.orders.index'
 import { Route as RetailerOrdersOrderIdRouteImport } from './routes/retailer.orders.$orderId'
 import { Route as RetailerProductsIndexRouteImport } from './routes/retailer.products.index'
 import { Route as RetailerProductsNewRouteImport } from './routes/retailer.products.new'
+import { Route as WorkerTasksIndexRouteImport } from './routes/worker.tasks.index'
+import { Route as WorkerTasksTaskIdRouteImport } from './routes/worker.tasks.$taskId'
 import { Route as RetailerProductsProductIdEditRouteImport } from './routes/retailer.products.$productId.edit'
 
 const IndexRoute = IndexRouteImport.update({
@@ -42,6 +65,11 @@ const IndexRoute = IndexRouteImport.update({
 const AddressesRoute = AddressesRouteImport.update({
   id: '/addresses',
   path: '/addresses',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -83,6 +111,61 @@ const SearchRoute = SearchRouteImport.update({
   id: '/search',
   path: '/search',
   getParentRoute: () => rootRouteImport,
+} as any)
+const WorkerRoute = WorkerRouteImport.update({
+  id: '/worker',
+  path: '/worker',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminDashboardRoute = AdminDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminDeliveryRoute = AdminDeliveryRouteImport.update({
+  id: '/delivery',
+  path: '/delivery',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminLoginRoute = AdminLoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminOrdersRoute = AdminOrdersRouteImport.update({
+  id: '/orders',
+  path: '/orders',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminProductsRoute = AdminProductsRouteImport.update({
+  id: '/products',
+  path: '/products',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminProfileRoute = AdminProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminRetailersRoute = AdminRetailersRouteImport.update({
+  id: '/retailers',
+  path: '/retailers',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminSettingsRoute = AdminSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminShopsRoute = AdminShopsRouteImport.update({
+  id: '/shops',
+  path: '/shops',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminUsersRoute = AdminUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => AdminRoute,
 } as any)
 const OrdersIndexRoute = OrdersIndexRouteImport.update({
   id: '/orders/',
@@ -129,6 +212,52 @@ const ShopsShopIdRoute = ShopsShopIdRouteImport.update({
   path: '/shops/$shopId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WorkerDashboardRoute = WorkerDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => WorkerRoute,
+} as any)
+const WorkerLoginRoute = WorkerLoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => WorkerRoute,
+} as any)
+const WorkerProfileRoute = WorkerProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => WorkerRoute,
+} as any)
+const AdminDeliveryTaskIdRoute = AdminDeliveryTaskIdRouteImport.update({
+  id: '/$taskId',
+  path: '/$taskId',
+  getParentRoute: () => AdminDeliveryRoute,
+} as any)
+const AdminOrdersOrderIdRoute = AdminOrdersOrderIdRouteImport.update({
+  id: '/$orderId',
+  path: '/$orderId',
+  getParentRoute: () => AdminOrdersRoute,
+} as any)
+const AdminProductsProductIdRoute = AdminProductsProductIdRouteImport.update({
+  id: '/$productId',
+  path: '/$productId',
+  getParentRoute: () => AdminProductsRoute,
+} as any)
+const AdminRetailersRetailerIdRoute =
+  AdminRetailersRetailerIdRouteImport.update({
+    id: '/$retailerId',
+    path: '/$retailerId',
+    getParentRoute: () => AdminRetailersRoute,
+  } as any)
+const AdminShopsShopIdRoute = AdminShopsShopIdRouteImport.update({
+  id: '/$shopId',
+  path: '/$shopId',
+  getParentRoute: () => AdminShopsRoute,
+} as any)
+const AdminUsersUserIdRoute = AdminUsersUserIdRouteImport.update({
+  id: '/$userId',
+  path: '/$userId',
+  getParentRoute: () => AdminUsersRoute,
+} as any)
 const RetailerOrdersIndexRoute = RetailerOrdersIndexRouteImport.update({
   id: '/orders/',
   path: '/orders/',
@@ -149,6 +278,16 @@ const RetailerProductsNewRoute = RetailerProductsNewRouteImport.update({
   path: '/products/new',
   getParentRoute: () => RetailerRoute,
 } as any)
+const WorkerTasksIndexRoute = WorkerTasksIndexRouteImport.update({
+  id: '/tasks/',
+  path: '/tasks/',
+  getParentRoute: () => WorkerRoute,
+} as any)
+const WorkerTasksTaskIdRoute = WorkerTasksTaskIdRouteImport.update({
+  id: '/tasks/$taskId',
+  path: '/tasks/$taskId',
+  getParentRoute: () => WorkerRoute,
+} as any)
 const RetailerProductsProductIdEditRoute =
   RetailerProductsProductIdEditRouteImport.update({
     id: '/products/$productId/edit',
@@ -159,6 +298,7 @@ const RetailerProductsProductIdEditRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/addresses': typeof AddressesRoute
+  '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
   '/cart': typeof CartRoute
   '/categories': typeof CategoriesRoute
@@ -167,6 +307,17 @@ export interface FileRoutesByFullPath {
   '/profile': typeof ProfileRoute
   '/retailer': typeof RetailerRouteWithChildren
   '/search': typeof SearchRoute
+  '/worker': typeof WorkerRouteWithChildren
+  '/admin/dashboard': typeof AdminDashboardRoute
+  '/admin/delivery': typeof AdminDeliveryRouteWithChildren
+  '/admin/login': typeof AdminLoginRoute
+  '/admin/orders': typeof AdminOrdersRouteWithChildren
+  '/admin/products': typeof AdminProductsRouteWithChildren
+  '/admin/profile': typeof AdminProfileRoute
+  '/admin/retailers': typeof AdminRetailersRouteWithChildren
+  '/admin/settings': typeof AdminSettingsRoute
+  '/admin/shops': typeof AdminShopsRouteWithChildren
+  '/admin/users': typeof AdminUsersRouteWithChildren
   '/orders/$orderId': typeof OrdersOrderIdRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/retailer/dashboard': typeof RetailerDashboardRoute
@@ -175,16 +326,28 @@ export interface FileRoutesByFullPath {
   '/retailer/profile': typeof RetailerProfileRoute
   '/retailer/shop': typeof RetailerShopRoute
   '/shops/$shopId': typeof ShopsShopIdRoute
+  '/worker/dashboard': typeof WorkerDashboardRoute
+  '/worker/login': typeof WorkerLoginRoute
+  '/worker/profile': typeof WorkerProfileRoute
   '/orders/': typeof OrdersIndexRoute
+  '/admin/delivery/$taskId': typeof AdminDeliveryTaskIdRoute
+  '/admin/orders/$orderId': typeof AdminOrdersOrderIdRoute
+  '/admin/products/$productId': typeof AdminProductsProductIdRoute
+  '/admin/retailers/$retailerId': typeof AdminRetailersRetailerIdRoute
+  '/admin/shops/$shopId': typeof AdminShopsShopIdRoute
+  '/admin/users/$userId': typeof AdminUsersUserIdRoute
   '/retailer/orders/$orderId': typeof RetailerOrdersOrderIdRoute
   '/retailer/products/new': typeof RetailerProductsNewRoute
+  '/worker/tasks/$taskId': typeof WorkerTasksTaskIdRoute
   '/retailer/orders/': typeof RetailerOrdersIndexRoute
   '/retailer/products/': typeof RetailerProductsIndexRoute
+  '/worker/tasks/': typeof WorkerTasksIndexRoute
   '/retailer/products/$productId/edit': typeof RetailerProductsProductIdEditRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/addresses': typeof AddressesRoute
+  '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
   '/cart': typeof CartRoute
   '/categories': typeof CategoriesRoute
@@ -193,6 +356,17 @@ export interface FileRoutesByTo {
   '/profile': typeof ProfileRoute
   '/retailer': typeof RetailerRouteWithChildren
   '/search': typeof SearchRoute
+  '/worker': typeof WorkerRouteWithChildren
+  '/admin/dashboard': typeof AdminDashboardRoute
+  '/admin/delivery': typeof AdminDeliveryRouteWithChildren
+  '/admin/login': typeof AdminLoginRoute
+  '/admin/orders': typeof AdminOrdersRouteWithChildren
+  '/admin/products': typeof AdminProductsRouteWithChildren
+  '/admin/profile': typeof AdminProfileRoute
+  '/admin/retailers': typeof AdminRetailersRouteWithChildren
+  '/admin/settings': typeof AdminSettingsRoute
+  '/admin/shops': typeof AdminShopsRouteWithChildren
+  '/admin/users': typeof AdminUsersRouteWithChildren
   '/orders/$orderId': typeof OrdersOrderIdRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/retailer/dashboard': typeof RetailerDashboardRoute
@@ -201,17 +375,29 @@ export interface FileRoutesByTo {
   '/retailer/profile': typeof RetailerProfileRoute
   '/retailer/shop': typeof RetailerShopRoute
   '/shops/$shopId': typeof ShopsShopIdRoute
+  '/worker/dashboard': typeof WorkerDashboardRoute
+  '/worker/login': typeof WorkerLoginRoute
+  '/worker/profile': typeof WorkerProfileRoute
   '/orders': typeof OrdersIndexRoute
+  '/admin/delivery/$taskId': typeof AdminDeliveryTaskIdRoute
+  '/admin/orders/$orderId': typeof AdminOrdersOrderIdRoute
+  '/admin/products/$productId': typeof AdminProductsProductIdRoute
+  '/admin/retailers/$retailerId': typeof AdminRetailersRetailerIdRoute
+  '/admin/shops/$shopId': typeof AdminShopsShopIdRoute
+  '/admin/users/$userId': typeof AdminUsersUserIdRoute
   '/retailer/orders/$orderId': typeof RetailerOrdersOrderIdRoute
   '/retailer/products/new': typeof RetailerProductsNewRoute
+  '/worker/tasks/$taskId': typeof WorkerTasksTaskIdRoute
   '/retailer/orders': typeof RetailerOrdersIndexRoute
   '/retailer/products': typeof RetailerProductsIndexRoute
+  '/worker/tasks': typeof WorkerTasksIndexRoute
   '/retailer/products/$productId/edit': typeof RetailerProductsProductIdEditRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/addresses': typeof AddressesRoute
+  '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
   '/cart': typeof CartRoute
   '/categories': typeof CategoriesRoute
@@ -220,6 +406,17 @@ export interface FileRoutesById {
   '/profile': typeof ProfileRoute
   '/retailer': typeof RetailerRouteWithChildren
   '/search': typeof SearchRoute
+  '/worker': typeof WorkerRouteWithChildren
+  '/admin/dashboard': typeof AdminDashboardRoute
+  '/admin/delivery': typeof AdminDeliveryRouteWithChildren
+  '/admin/login': typeof AdminLoginRoute
+  '/admin/orders': typeof AdminOrdersRouteWithChildren
+  '/admin/products': typeof AdminProductsRouteWithChildren
+  '/admin/profile': typeof AdminProfileRoute
+  '/admin/retailers': typeof AdminRetailersRouteWithChildren
+  '/admin/settings': typeof AdminSettingsRoute
+  '/admin/shops': typeof AdminShopsRouteWithChildren
+  '/admin/users': typeof AdminUsersRouteWithChildren
   '/orders/$orderId': typeof OrdersOrderIdRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/retailer/dashboard': typeof RetailerDashboardRoute
@@ -228,11 +425,22 @@ export interface FileRoutesById {
   '/retailer/profile': typeof RetailerProfileRoute
   '/retailer/shop': typeof RetailerShopRoute
   '/shops/$shopId': typeof ShopsShopIdRoute
+  '/worker/dashboard': typeof WorkerDashboardRoute
+  '/worker/login': typeof WorkerLoginRoute
+  '/worker/profile': typeof WorkerProfileRoute
   '/orders/': typeof OrdersIndexRoute
+  '/admin/delivery/$taskId': typeof AdminDeliveryTaskIdRoute
+  '/admin/orders/$orderId': typeof AdminOrdersOrderIdRoute
+  '/admin/products/$productId': typeof AdminProductsProductIdRoute
+  '/admin/retailers/$retailerId': typeof AdminRetailersRetailerIdRoute
+  '/admin/shops/$shopId': typeof AdminShopsShopIdRoute
+  '/admin/users/$userId': typeof AdminUsersUserIdRoute
   '/retailer/orders/$orderId': typeof RetailerOrdersOrderIdRoute
   '/retailer/products/new': typeof RetailerProductsNewRoute
+  '/worker/tasks/$taskId': typeof WorkerTasksTaskIdRoute
   '/retailer/orders/': typeof RetailerOrdersIndexRoute
   '/retailer/products/': typeof RetailerProductsIndexRoute
+  '/worker/tasks/': typeof WorkerTasksIndexRoute
   '/retailer/products/$productId/edit': typeof RetailerProductsProductIdEditRoute
 }
 export interface FileRouteTypes {
@@ -240,6 +448,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/addresses'
+    | '/admin'
     | '/auth'
     | '/cart'
     | '/categories'
@@ -248,6 +457,17 @@ export interface FileRouteTypes {
     | '/profile'
     | '/retailer'
     | '/search'
+    | '/worker'
+    | '/admin/dashboard'
+    | '/admin/delivery'
+    | '/admin/login'
+    | '/admin/orders'
+    | '/admin/products'
+    | '/admin/profile'
+    | '/admin/retailers'
+    | '/admin/settings'
+    | '/admin/shops'
+    | '/admin/users'
     | '/orders/$orderId'
     | '/products/$productId'
     | '/retailer/dashboard'
@@ -256,16 +476,28 @@ export interface FileRouteTypes {
     | '/retailer/profile'
     | '/retailer/shop'
     | '/shops/$shopId'
+    | '/worker/dashboard'
+    | '/worker/login'
+    | '/worker/profile'
     | '/orders/'
+    | '/admin/delivery/$taskId'
+    | '/admin/orders/$orderId'
+    | '/admin/products/$productId'
+    | '/admin/retailers/$retailerId'
+    | '/admin/shops/$shopId'
+    | '/admin/users/$userId'
     | '/retailer/orders/$orderId'
     | '/retailer/products/new'
+    | '/worker/tasks/$taskId'
     | '/retailer/orders/'
     | '/retailer/products/'
+    | '/worker/tasks/'
     | '/retailer/products/$productId/edit'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/addresses'
+    | '/admin'
     | '/auth'
     | '/cart'
     | '/categories'
@@ -274,6 +506,17 @@ export interface FileRouteTypes {
     | '/profile'
     | '/retailer'
     | '/search'
+    | '/worker'
+    | '/admin/dashboard'
+    | '/admin/delivery'
+    | '/admin/login'
+    | '/admin/orders'
+    | '/admin/products'
+    | '/admin/profile'
+    | '/admin/retailers'
+    | '/admin/settings'
+    | '/admin/shops'
+    | '/admin/users'
     | '/orders/$orderId'
     | '/products/$productId'
     | '/retailer/dashboard'
@@ -282,16 +525,28 @@ export interface FileRouteTypes {
     | '/retailer/profile'
     | '/retailer/shop'
     | '/shops/$shopId'
+    | '/worker/dashboard'
+    | '/worker/login'
+    | '/worker/profile'
     | '/orders'
+    | '/admin/delivery/$taskId'
+    | '/admin/orders/$orderId'
+    | '/admin/products/$productId'
+    | '/admin/retailers/$retailerId'
+    | '/admin/shops/$shopId'
+    | '/admin/users/$userId'
     | '/retailer/orders/$orderId'
     | '/retailer/products/new'
+    | '/worker/tasks/$taskId'
     | '/retailer/orders'
     | '/retailer/products'
+    | '/worker/tasks'
     | '/retailer/products/$productId/edit'
   id:
     | '__root__'
     | '/'
     | '/addresses'
+    | '/admin'
     | '/auth'
     | '/cart'
     | '/categories'
@@ -300,6 +555,17 @@ export interface FileRouteTypes {
     | '/profile'
     | '/retailer'
     | '/search'
+    | '/worker'
+    | '/admin/dashboard'
+    | '/admin/delivery'
+    | '/admin/login'
+    | '/admin/orders'
+    | '/admin/products'
+    | '/admin/profile'
+    | '/admin/retailers'
+    | '/admin/settings'
+    | '/admin/shops'
+    | '/admin/users'
     | '/orders/$orderId'
     | '/products/$productId'
     | '/retailer/dashboard'
@@ -308,17 +574,29 @@ export interface FileRouteTypes {
     | '/retailer/profile'
     | '/retailer/shop'
     | '/shops/$shopId'
+    | '/worker/dashboard'
+    | '/worker/login'
+    | '/worker/profile'
     | '/orders/'
+    | '/admin/delivery/$taskId'
+    | '/admin/orders/$orderId'
+    | '/admin/products/$productId'
+    | '/admin/retailers/$retailerId'
+    | '/admin/shops/$shopId'
+    | '/admin/users/$userId'
     | '/retailer/orders/$orderId'
     | '/retailer/products/new'
+    | '/worker/tasks/$taskId'
     | '/retailer/orders/'
     | '/retailer/products/'
+    | '/worker/tasks/'
     | '/retailer/products/$productId/edit'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AddressesRoute: typeof AddressesRoute
+  AdminRoute: typeof AdminRouteWithChildren
   AuthRoute: typeof AuthRoute
   CartRoute: typeof CartRoute
   CategoriesRoute: typeof CategoriesRoute
@@ -327,6 +605,7 @@ export interface RootRouteChildren {
   ProfileRoute: typeof ProfileRoute
   RetailerRoute: typeof RetailerRouteWithChildren
   SearchRoute: typeof SearchRoute
+  WorkerRoute: typeof WorkerRouteWithChildren
   OrdersOrderIdRoute: typeof OrdersOrderIdRoute
   ProductsProductIdRoute: typeof ProductsProductIdRoute
   ShopsShopIdRoute: typeof ShopsShopIdRoute
@@ -347,6 +626,13 @@ declare module '@tanstack/react-router' {
       path: '/addresses'
       fullPath: '/addresses'
       preLoaderRoute: typeof AddressesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth': {
@@ -404,6 +690,83 @@ declare module '@tanstack/react-router' {
       fullPath: '/search'
       preLoaderRoute: typeof SearchRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/worker': {
+      id: '/worker'
+      path: '/worker'
+      fullPath: '/worker'
+      preLoaderRoute: typeof WorkerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/dashboard': {
+      id: '/admin/dashboard'
+      path: '/dashboard'
+      fullPath: '/admin/dashboard'
+      preLoaderRoute: typeof AdminDashboardRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/delivery': {
+      id: '/admin/delivery'
+      path: '/delivery'
+      fullPath: '/admin/delivery'
+      preLoaderRoute: typeof AdminDeliveryRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/login': {
+      id: '/admin/login'
+      path: '/login'
+      fullPath: '/admin/login'
+      preLoaderRoute: typeof AdminLoginRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/orders': {
+      id: '/admin/orders'
+      path: '/orders'
+      fullPath: '/admin/orders'
+      preLoaderRoute: typeof AdminOrdersRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/products': {
+      id: '/admin/products'
+      path: '/products'
+      fullPath: '/admin/products'
+      preLoaderRoute: typeof AdminProductsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/profile': {
+      id: '/admin/profile'
+      path: '/profile'
+      fullPath: '/admin/profile'
+      preLoaderRoute: typeof AdminProfileRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/retailers': {
+      id: '/admin/retailers'
+      path: '/retailers'
+      fullPath: '/admin/retailers'
+      preLoaderRoute: typeof AdminRetailersRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/settings': {
+      id: '/admin/settings'
+      path: '/settings'
+      fullPath: '/admin/settings'
+      preLoaderRoute: typeof AdminSettingsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/shops': {
+      id: '/admin/shops'
+      path: '/shops'
+      fullPath: '/admin/shops'
+      preLoaderRoute: typeof AdminShopsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/users': {
+      id: '/admin/users'
+      path: '/users'
+      fullPath: '/admin/users'
+      preLoaderRoute: typeof AdminUsersRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/orders/': {
       id: '/orders/'
@@ -468,6 +831,69 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShopsShopIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/worker/dashboard': {
+      id: '/worker/dashboard'
+      path: '/dashboard'
+      fullPath: '/worker/dashboard'
+      preLoaderRoute: typeof WorkerDashboardRouteImport
+      parentRoute: typeof WorkerRoute
+    }
+    '/worker/login': {
+      id: '/worker/login'
+      path: '/login'
+      fullPath: '/worker/login'
+      preLoaderRoute: typeof WorkerLoginRouteImport
+      parentRoute: typeof WorkerRoute
+    }
+    '/worker/profile': {
+      id: '/worker/profile'
+      path: '/profile'
+      fullPath: '/worker/profile'
+      preLoaderRoute: typeof WorkerProfileRouteImport
+      parentRoute: typeof WorkerRoute
+    }
+    '/admin/delivery/$taskId': {
+      id: '/admin/delivery/$taskId'
+      path: '/$taskId'
+      fullPath: '/admin/delivery/$taskId'
+      preLoaderRoute: typeof AdminDeliveryTaskIdRouteImport
+      parentRoute: typeof AdminDeliveryRoute
+    }
+    '/admin/orders/$orderId': {
+      id: '/admin/orders/$orderId'
+      path: '/$orderId'
+      fullPath: '/admin/orders/$orderId'
+      preLoaderRoute: typeof AdminOrdersOrderIdRouteImport
+      parentRoute: typeof AdminOrdersRoute
+    }
+    '/admin/products/$productId': {
+      id: '/admin/products/$productId'
+      path: '/$productId'
+      fullPath: '/admin/products/$productId'
+      preLoaderRoute: typeof AdminProductsProductIdRouteImport
+      parentRoute: typeof AdminProductsRoute
+    }
+    '/admin/retailers/$retailerId': {
+      id: '/admin/retailers/$retailerId'
+      path: '/$retailerId'
+      fullPath: '/admin/retailers/$retailerId'
+      preLoaderRoute: typeof AdminRetailersRetailerIdRouteImport
+      parentRoute: typeof AdminRetailersRoute
+    }
+    '/admin/shops/$shopId': {
+      id: '/admin/shops/$shopId'
+      path: '/$shopId'
+      fullPath: '/admin/shops/$shopId'
+      preLoaderRoute: typeof AdminShopsShopIdRouteImport
+      parentRoute: typeof AdminShopsRoute
+    }
+    '/admin/users/$userId': {
+      id: '/admin/users/$userId'
+      path: '/$userId'
+      fullPath: '/admin/users/$userId'
+      preLoaderRoute: typeof AdminUsersUserIdRouteImport
+      parentRoute: typeof AdminUsersRoute
+    }
     '/retailer/orders/': {
       id: '/retailer/orders/'
       path: '/orders'
@@ -496,6 +922,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RetailerProductsNewRouteImport
       parentRoute: typeof RetailerRoute
     }
+    '/worker/tasks/': {
+      id: '/worker/tasks/'
+      path: '/tasks'
+      fullPath: '/worker/tasks/'
+      preLoaderRoute: typeof WorkerTasksIndexRouteImport
+      parentRoute: typeof WorkerRoute
+    }
+    '/worker/tasks/$taskId': {
+      id: '/worker/tasks/$taskId'
+      path: '/tasks/$taskId'
+      fullPath: '/worker/tasks/$taskId'
+      preLoaderRoute: typeof WorkerTasksTaskIdRouteImport
+      parentRoute: typeof WorkerRoute
+    }
     '/retailer/products/$productId/edit': {
       id: '/retailer/products/$productId/edit'
       path: '/products/$productId/edit'
@@ -505,6 +945,106 @@ declare module '@tanstack/react-router' {
     }
   }
 }
+
+interface AdminDeliveryRouteChildren {
+  AdminDeliveryTaskIdRoute: typeof AdminDeliveryTaskIdRoute
+}
+
+const AdminDeliveryRouteChildren: AdminDeliveryRouteChildren = {
+  AdminDeliveryTaskIdRoute: AdminDeliveryTaskIdRoute,
+}
+
+const AdminDeliveryRouteWithChildren = AdminDeliveryRoute._addFileChildren(
+  AdminDeliveryRouteChildren,
+)
+
+interface AdminOrdersRouteChildren {
+  AdminOrdersOrderIdRoute: typeof AdminOrdersOrderIdRoute
+}
+
+const AdminOrdersRouteChildren: AdminOrdersRouteChildren = {
+  AdminOrdersOrderIdRoute: AdminOrdersOrderIdRoute,
+}
+
+const AdminOrdersRouteWithChildren = AdminOrdersRoute._addFileChildren(
+  AdminOrdersRouteChildren,
+)
+
+interface AdminProductsRouteChildren {
+  AdminProductsProductIdRoute: typeof AdminProductsProductIdRoute
+}
+
+const AdminProductsRouteChildren: AdminProductsRouteChildren = {
+  AdminProductsProductIdRoute: AdminProductsProductIdRoute,
+}
+
+const AdminProductsRouteWithChildren = AdminProductsRoute._addFileChildren(
+  AdminProductsRouteChildren,
+)
+
+interface AdminRetailersRouteChildren {
+  AdminRetailersRetailerIdRoute: typeof AdminRetailersRetailerIdRoute
+}
+
+const AdminRetailersRouteChildren: AdminRetailersRouteChildren = {
+  AdminRetailersRetailerIdRoute: AdminRetailersRetailerIdRoute,
+}
+
+const AdminRetailersRouteWithChildren = AdminRetailersRoute._addFileChildren(
+  AdminRetailersRouteChildren,
+)
+
+interface AdminShopsRouteChildren {
+  AdminShopsShopIdRoute: typeof AdminShopsShopIdRoute
+}
+
+const AdminShopsRouteChildren: AdminShopsRouteChildren = {
+  AdminShopsShopIdRoute: AdminShopsShopIdRoute,
+}
+
+const AdminShopsRouteWithChildren = AdminShopsRoute._addFileChildren(
+  AdminShopsRouteChildren,
+)
+
+interface AdminUsersRouteChildren {
+  AdminUsersUserIdRoute: typeof AdminUsersUserIdRoute
+}
+
+const AdminUsersRouteChildren: AdminUsersRouteChildren = {
+  AdminUsersUserIdRoute: AdminUsersUserIdRoute,
+}
+
+const AdminUsersRouteWithChildren = AdminUsersRoute._addFileChildren(
+  AdminUsersRouteChildren,
+)
+
+interface AdminRouteChildren {
+  AdminDashboardRoute: typeof AdminDashboardRoute
+  AdminDeliveryRoute: typeof AdminDeliveryRouteWithChildren
+  AdminLoginRoute: typeof AdminLoginRoute
+  AdminOrdersRoute: typeof AdminOrdersRouteWithChildren
+  AdminProductsRoute: typeof AdminProductsRouteWithChildren
+  AdminProfileRoute: typeof AdminProfileRoute
+  AdminRetailersRoute: typeof AdminRetailersRouteWithChildren
+  AdminSettingsRoute: typeof AdminSettingsRoute
+  AdminShopsRoute: typeof AdminShopsRouteWithChildren
+  AdminUsersRoute: typeof AdminUsersRouteWithChildren
+}
+
+const AdminRouteChildren: AdminRouteChildren = {
+  AdminDashboardRoute: AdminDashboardRoute,
+  AdminDeliveryRoute: AdminDeliveryRouteWithChildren,
+  AdminLoginRoute: AdminLoginRoute,
+  AdminOrdersRoute: AdminOrdersRouteWithChildren,
+  AdminProductsRoute: AdminProductsRouteWithChildren,
+  AdminProfileRoute: AdminProfileRoute,
+  AdminRetailersRoute: AdminRetailersRouteWithChildren,
+  AdminSettingsRoute: AdminSettingsRoute,
+  AdminShopsRoute: AdminShopsRouteWithChildren,
+  AdminUsersRoute: AdminUsersRouteWithChildren,
+}
+
+const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
 interface RetailerRouteChildren {
   RetailerDashboardRoute: typeof RetailerDashboardRoute
@@ -536,9 +1076,29 @@ const RetailerRouteWithChildren = RetailerRoute._addFileChildren(
   RetailerRouteChildren,
 )
 
+interface WorkerRouteChildren {
+  WorkerDashboardRoute: typeof WorkerDashboardRoute
+  WorkerLoginRoute: typeof WorkerLoginRoute
+  WorkerProfileRoute: typeof WorkerProfileRoute
+  WorkerTasksTaskIdRoute: typeof WorkerTasksTaskIdRoute
+  WorkerTasksIndexRoute: typeof WorkerTasksIndexRoute
+}
+
+const WorkerRouteChildren: WorkerRouteChildren = {
+  WorkerDashboardRoute: WorkerDashboardRoute,
+  WorkerLoginRoute: WorkerLoginRoute,
+  WorkerProfileRoute: WorkerProfileRoute,
+  WorkerTasksTaskIdRoute: WorkerTasksTaskIdRoute,
+  WorkerTasksIndexRoute: WorkerTasksIndexRoute,
+}
+
+const WorkerRouteWithChildren =
+  WorkerRoute._addFileChildren(WorkerRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AddressesRoute: AddressesRoute,
+  AdminRoute: AdminRouteWithChildren,
   AuthRoute: AuthRoute,
   CartRoute: CartRoute,
   CategoriesRoute: CategoriesRoute,
@@ -547,6 +1107,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProfileRoute: ProfileRoute,
   RetailerRoute: RetailerRouteWithChildren,
   SearchRoute: SearchRoute,
+  WorkerRoute: WorkerRouteWithChildren,
   OrdersOrderIdRoute: OrdersOrderIdRoute,
   ProductsProductIdRoute: ProductsProductIdRoute,
   ShopsShopIdRoute: ShopsShopIdRoute,

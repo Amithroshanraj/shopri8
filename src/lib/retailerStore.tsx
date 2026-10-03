@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Order, Product, Shop } from "./types";
 import { DEMO_CENTER, PRODUCTS, SHOPS } from "../data/demo";
+import { announceOrdersUpdated, ORDERS_STORAGE_KEY, ORDERS_UPDATED_EVENT } from "./orderSync";
 
 export const DEMO_RETAILER_ID = "demo-retailer-1";
 export const DEMO_SHOP_ID = "shop-green-basket";
 
 const SHOP_STORAGE_KEY = "shopri8.retailer.shop.v1";
 const PRODUCTS_STORAGE_KEY = "shopri8.retailer.products.v1";
-const ORDERS_STORAGE_KEY = "shopri8.orders.v1";
 const RETAILER_ORDER_TRANSITIONS: Partial<Record<Order["orderStatus"], Order["orderStatus"][]>> = {
   PLACED: ["RETAILER_REVIEW"],
   RETAILER_REVIEW: ["ACCEPTED", "REJECTED"],
@@ -255,11 +255,12 @@ function hydrateStoreFromStorage() {
     if (rawOrders) {
       const storedOrders = JSON.parse(rawOrders) as Order[];
       if (Array.isArray(storedOrders)) {
-        orders = storedOrders.some((order) => order.shopId === shop.id)
-          ? storedOrders
-          : [...storedOrders, ...INITIAL_ORDERS];
-        if (!storedOrders.some((order) => order.shopId === shop.id)) {
+        const storedIds = new Set(storedOrders.map((order) => order.id));
+        const missingDemoOrders = INITIAL_ORDERS.filter((order) => !storedIds.has(order.id));
+        orders = [...storedOrders, ...missingDemoOrders];
+        if (missingDemoOrders.length > 0) {
           localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(orders));
+          announceOrdersUpdated();
         }
       }
     } else {
@@ -312,11 +313,24 @@ export function useRetailerStore() {
         }
       }
     };
+    const onOrdersUpdated = () => {
+      try {
+        const raw = localStorage.getItem(ORDERS_STORAGE_KEY);
+        if (raw) {
+          storeState = { ...storeState, orders: JSON.parse(raw) as Order[] };
+          notifyStoreListeners();
+        }
+      } catch {
+        // Keep the current order snapshot when stored data is invalid.
+      }
+    };
 
     window.addEventListener("storage", onStorage);
+    window.addEventListener(ORDERS_UPDATED_EVENT, onOrdersUpdated);
     return () => {
       storeListeners.delete(listener);
       window.removeEventListener("storage", onStorage);
+      window.removeEventListener(ORDERS_UPDATED_EVENT, onOrdersUpdated);
     };
   }, []);
 
@@ -344,6 +358,7 @@ export function useRetailerStore() {
       storeState = { ...storeState, orders: updatedAllOrders };
       try {
         localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(updatedAllOrders));
+        announceOrdersUpdated();
       } catch (e) {
         console.error("Failed to save orders:", e);
       }

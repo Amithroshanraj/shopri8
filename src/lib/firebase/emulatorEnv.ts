@@ -30,10 +30,29 @@ export const DEFAULT_EMULATOR_PORTS = {
 /**
  * Resolves an emulator host, falling back to the standard local port when the
  * env var is absent or malformed.
+ *
+ * Every form of the env var has to yield a usable `host:port`. Notably an empty
+ * value must become `127.0.0.1:<default>` and not `:<default>`: a bare `:9099`
+ * passes a port check but is not a parseable URL, so `connectAuthEmulator` would
+ * silently register `http://:9099` and every Auth call would fail with
+ * `auth/network-request-failed` instead of a clear error.
  */
 export function readEmulatorHost(key: string, defaultPort: number): string {
   const raw = readEnv(key);
-  const candidate = raw.includes(":") ? raw : `${raw}:${defaultPort}`;
-  const port = Number(candidate.split(":")[1]);
-  return Number.isFinite(port) && port > 0 ? candidate : `127.0.0.1:${defaultPort}`;
+  if (!raw) return `127.0.0.1:${defaultPort}`;
+  try {
+    const address = new URL(raw.includes("://") ? raw : `http://${raw}`);
+    if (
+      !["http:", "https:"].includes(address.protocol) ||
+      !address.hostname ||
+      (address.pathname !== "/" && address.pathname !== "")
+    ) {
+      return `127.0.0.1:${defaultPort}`;
+    }
+    const host = address.hostname.includes(":") ? `[${address.hostname}]` : address.hostname;
+    const port = address.port ? Number(address.port) : defaultPort;
+    return `${host}:${port}`;
+  } catch {
+    return `127.0.0.1:${defaultPort}`;
+  }
 }

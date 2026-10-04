@@ -34,6 +34,7 @@ import {
   limit,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
   setDoc,
   updateDoc,
@@ -154,7 +155,17 @@ export async function ensureUserProfile(
     ...profile,
     updatedAt: serverTimestamp(),
   });
-  await setDoc(userDoc(uid), { createdAt: serverTimestamp(), ...body }, { merge: true });
+  const ref = userDoc(uid);
+  await runTransaction(requireDb(), async (transaction) => {
+    const snapshot = await transaction.get(ref);
+    if (snapshot.exists()) {
+      const updates = { ...body };
+      delete updates.capabilities;
+      transaction.set(ref, updates, { merge: true });
+      return;
+    }
+    transaction.set(ref, { createdAt: serverTimestamp(), ...body }, { merge: true });
+  });
 }
 
 export async function updateUserProfile(
@@ -169,6 +180,9 @@ export async function updateUserProfile(
  * a user cannot add capabilities to their own document.
  */
 export async function addUserCapability(uid: string, capability: Capability): Promise<void> {
+  if (capability === "admin") {
+    throw new Error("Admin capability must be granted through trusted server-side provisioning.");
+  }
   await updateDoc(userDoc(uid), {
     capabilities: arrayUnion(capability),
     updatedAt: serverTimestamp(),

@@ -13,17 +13,24 @@
  *     Privileged roles are granted by an admin, and the Firestore security rules
  *     reject a self-write that tries to grant more than `customer`.
  *
- * Nothing in this module is wired into the running portals yet. Phase 10 of the
- * Firebase foundation deliberately leaves every screen on the demo adapter.
+ * The session lives in a module-scoped external store rather than React state so
+ * that the customer gate, all three portal shells and the sign-in screens share
+ * one `onAuthStateChanged` subscription and one resolved identity. Several
+ * copies of this state would disagree mid-sign-in.
+ *
+ * Server rendering never reads a session: the server snapshot stays
+ * `initialising`, so no protected markup is emitted and hydration agrees with
+ * the first client render.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { User } from "firebase/auth";
-import type { ConfirmationResult } from "firebase/auth";
+import { useCallback, useSyncExternalStore } from "react";
+import type { ConfirmationResult, User } from "firebase/auth";
 import {
+  clearPhoneVerification,
   confirmPhoneOtp,
   ensureUserProfile,
   fetchUser,
+  isBrowser,
   isFirebaseConfigured,
   normalisePhoneE164,
   registerWithEmail,
@@ -34,19 +41,59 @@ import {
   toUserCredentialResult,
 } from "../firebase";
 import type { Capability } from "../types";
+import { toAuthErrorMessage } from "./authErrors";
 import {
   DEFAULT_CUSTOMER_CAPABILITY,
   SELF_ASSIGNABLE_CAPABILITIES,
-  errorMessage,
   identityHasCapability,
   type AuthIdentity,
   type AuthSession,
+  type AuthStatus,
 } from "./types";
 
 /** A pending phone sign-in, held between sending and verifying the SMS code. */
-interface PendingPhoneSignIn {
+export interface PendingPhoneSignIn {
   confirmation: ConfirmationResult;
   phone: string;
+}
+
+interface FirebaseAuthState {
+  status: AuthStatus;
+  identity: AuthIdentity | null;
+  error: string | null;
+  pendingPhone: PendingPhoneSignIn | null;
+}
+
+const INITIAL_STATE: FirebaseAuthState = {
+  status: isFirebaseConfigured ? "initialising" : "signed-out",
+  identity: null,
+  error: null,
+  pendingPhone: null,
+};
+
+/**
+ * The snapshot used during server rendering and for the client's first render.
+ *
+ * A constant, so `useSyncExternalStore` sees a stable value and hydration does
+ * not mismatch while the real session is still being resolved.
+ */
+const SERVER_STATE: FirebaseAuthState = {
+  status: isFirebaseConfigured ? "initialising" : "signed-out",
+  identity: null,
+  error: null,
+  pendingPhone: null,
+};
+
+let state: FirebaseAuthState = INITIAL_STATE;
+const listeners = new Set<() => void>();
+let unsubscribe: (() => void) | null = null;
+/** The Firebase user behind `state`. Never exposed to consumers. */
+let currentUser: User | null = null;
+let authChangeId = 0;
+
+function emit(patch: Partial<FirebaseAuthState>): void {
+  state = { ...state, ...patch };
+  for (const listener of listeners) listener();
 }
 
 async function identityFromFirebaseUser(user: User): Promise<AuthIdentity> {
@@ -64,172 +111,234 @@ async function identityFromFirebaseUser(user: User): Promise<AuthIdentity> {
 }
 
 /**
- * Subscribes to the Firebase session and resolves capabilities.
+ * Starts observing Firebase Auth exactly once.
  *
- * Safe to call when Firebase is unconfigured: the session stays signed out and
- * no browser-only API is touched, so SSR and an unconfigured checkout behave the
- * same as the demo layer.
+ * `subscribeToAuth` is a no-op on the server and when Firebase is unconfigured,
+ * so nothing browser-only is touched during SSR.
  */
-export function useFirebaseAuthSession(): AuthSession & {
-  signInWithPhone: (phone: string, containerId: string) => Promise<void>;
-  verifyPhoneCode: (code: string) => Promise<void>;
-  signInWithPassword: (email: string, password: string) => Promise<void>;
-  registerWithPassword: (
-    email: string,
-    password: string,
-    options?: { capability?: Capability; displayName?: string },
-  ) => Promise<void>;
-  signOut: () => Promise<void>;
-} {
-  const [user, setUser] = useState<User | null>(null);
-  const [identity, setIdentity] = useState<AuthIdentity | null>(null);
-  const [initialising, setInitialising] = useState(isFirebaseConfigured);
-  const [error, setError] = useState<string | null>(null);
-  const [pendingPhone, setPendingPhone] = useState<PendingPhoneSignIn | null>(null);
-
-  useEffect(() => {
-    if (!isFirebaseConfigured) {
-      setInitialising(false);
+function ensureStarted(): void {
+  if (unsubscribe || !isBrowser || !isFirebaseConfigured) return;
+  unsubscribe = subscribeToAuth((user) => {
+    const changeId = ++authChangeId;
+    currentUser = user;
+    if (!user) {
+      emit({ status: "signed-out", identity: null, pendingPhone: null });
       return;
     }
-    let active = true;
-    const unsubscribe = subscribeToAuth((nextUser) => {
-      setUser(nextUser);
-      if (!nextUser) {
-        setIdentity(null);
-        setInitialising(false);
-        return;
-      }
-      void identityFromFirebaseUser(nextUser)
-        .then((nextIdentity) => {
-          if (active) setIdentity(nextIdentity);
-        })
-        .catch((cause: unknown) => {
-          if (active) setError(errorMessage(cause, "Could not load your profile."));
-        })
-        .finally(() => {
-          if (active) setInitialising(false);
+    emit({ status: "initialising", identity: null, error: null });
+    void identityFromFirebaseUser(user)
+      .then((identity) => {
+        if (changeId !== authChangeId || currentUser?.uid !== user.uid) return;
+        emit({ status: "signed-in", identity });
+      })
+      .catch((cause: unknown) => {
+        if (changeId !== authChangeId || currentUser?.uid !== user.uid) return;
+        // Signed in, but the profile could not be read. No capabilities means no
+        // portal access, which is the safe outcome.
+        emit({
+          status: "signed-in",
+          identity: null,
+          error: toAuthErrorMessage(cause),
         });
+      });
+  });
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  ensureStarted();
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function getSnapshot(): FirebaseAuthState {
+  return state;
+}
+
+function getServerSnapshot(): FirebaseAuthState {
+  return SERVER_STATE;
+}
+
+/** Re-reads `users/{uid}` for the signed-in account. */
+export async function refreshIdentity(): Promise<void> {
+  const user = currentUser;
+  const changeId = authChangeId;
+  if (!user || !isBrowser) return;
+  const identity = await identityFromFirebaseUser(user);
+  if (changeId !== authChangeId || currentUser?.uid !== user.uid) return;
+  emit({ status: "signed-in", identity });
+}
+
+// ---------------------------------------------------------------------------
+// Actions
+// ---------------------------------------------------------------------------
+
+/**
+ * Re-throws a Firebase failure as a plain Error carrying the readable message.
+ *
+ * The `FirebaseError` itself says things like `Firebase: Error
+ * (auth/invalid-verification-code).`, which is meant for developers. A screen that
+ * shows `error.message` directly would leak that string to customers, so every
+ * action below normalises the message once and throws that instead. The original
+ * error is kept as `cause` for logging.
+ */
+function throwReadable(cause: unknown, fallback: string): never {
+  const message = toAuthErrorMessage(cause, fallback);
+  emit({ error: message });
+  throw new Error(message, { cause });
+}
+
+/** Starts customer phone sign-in. Resolves once the SMS code has been sent. */
+export async function signInWithPhone(phone: string, containerId: string): Promise<void> {
+  emit({ error: null });
+  try {
+    const normalised = normalisePhoneE164(phone);
+    const confirmation = await startPhoneSignIn(normalised, containerId);
+    emit({ pendingPhone: { confirmation, phone: normalised } });
+  } catch (cause: unknown) {
+    emit({ pendingPhone: null });
+    throwReadable(cause, "Could not send the verification code.");
+  }
+}
+
+/** Confirms the SMS code and self-assigns the customer capability. */
+export async function verifyPhoneCode(code: string): Promise<void> {
+  const pending = state.pendingPhone;
+  if (!pending) {
+    const error = new Error("Request a verification code first.");
+    emit({ error: error.message });
+    throw error;
+  }
+  emit({ error: null });
+  try {
+    const credential = await confirmPhoneOtp(pending.confirmation, code);
+    const result = toUserCredentialResult(credential);
+    await ensureUserProfile(result.uid, {
+      ...(result.phoneNumber ? { phone: result.phoneNumber } : {}),
+      ...(result.displayName ? { name: result.displayName } : {}),
+      capabilities: [DEFAULT_CUSTOMER_CAPABILITY],
     });
-    return () => {
-      active = false;
-      unsubscribe();
-    };
-  }, []);
+    emit({ pendingPhone: null });
+    await refreshIdentity();
+  } catch (cause: unknown) {
+    throwReadable(cause, "That verification code is not valid.");
+  }
+}
+
+/** Drops a pending phone attempt and releases the reCAPTCHA widget. */
+export function cancelPhoneSignIn(): void {
+  clearPhoneVerification();
+  emit({ pendingPhone: null, error: null });
+}
+
+export async function signInWithPassword(email: string, password: string): Promise<void> {
+  emit({ error: null });
+  try {
+    await signInWithEmail(email, password);
+    await refreshIdentity();
+  } catch (cause: unknown) {
+    throwReadable(cause, "Could not sign in with those details.");
+  }
+}
+
+/**
+ * Creates an email account.
+ *
+ * A new account may only self-assign a customer capability. Privileged roles are
+ * granted later by an admin through the same document.
+ */
+export async function registerWithPassword(
+  email: string,
+  password: string,
+  options?: { capability?: Capability; displayName?: string },
+): Promise<void> {
+  emit({ error: null });
+  try {
+    const credential = await registerWithEmail(email, password);
+    const result = toUserCredentialResult(credential);
+    const requested = options?.capability ? [options.capability] : [];
+    const capabilities = requested.filter((capability) =>
+      SELF_ASSIGNABLE_CAPABILITIES.includes(capability),
+    );
+    await ensureUserProfile(result.uid, {
+      email: result.email ?? email,
+      ...(options?.displayName ? { name: options.displayName } : {}),
+      capabilities,
+    });
+    await refreshIdentity();
+  } catch (cause: unknown) {
+    throwReadable(cause, "Could not create that account.");
+  }
+}
+
+export async function signOut(): Promise<void> {
+  emit({ error: null, pendingPhone: null });
+  clearPhoneVerification();
+  await firebaseSignOut();
+  currentUser = null;
+  authChangeId += 1;
+  emit({ status: "signed-out", identity: null });
+}
+
+export function clearError(): void {
+  if (state.error) emit({ error: null });
+}
+
+// ---------------------------------------------------------------------------
+// Hook
+// ---------------------------------------------------------------------------
+
+export interface FirebaseAuthSession extends AuthSession {
+  signInWithPhone: typeof signInWithPhone;
+  verifyPhoneCode: typeof verifyPhoneCode;
+  cancelPhoneSignIn: typeof cancelPhoneSignIn;
+  signInWithPassword: typeof signInWithPassword;
+  registerWithPassword: typeof registerWithPassword;
+  signOut: typeof signOut;
+  clearError: typeof clearError;
+  refreshIdentity: typeof refreshIdentity;
+  pendingPhone: PendingPhoneSignIn | null;
+}
+
+/**
+ * The shared Firebase session, plus the actions that change it.
+ *
+ * Safe to call when Firebase is unconfigured: the session stays signed out and no
+ * browser-only API is touched, so SSR and an unconfigured checkout behave the
+ * same as the demo layer.
+ */
+export function useFirebaseAuthSession(): FirebaseAuthSession {
+  const current = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   const hasCapability = useCallback(
-    (capability: Capability) => identityHasCapability(identity, capability),
-    [identity],
+    (capability: Capability) => identityHasCapability(current.identity, capability),
+    [current.identity],
   );
 
   const capabilitiesIn = useCallback(
     <T extends readonly Capability[]>(available: T) =>
-      available.filter((capability) => identityHasCapability(identity, capability)),
-    [identity],
+      available.filter((capability) => identityHasCapability(current.identity, capability)),
+    [current.identity],
   );
-
-  const signInWithPhone = useCallback(async (phone: string, containerId: string) => {
-    setError(null);
-    try {
-      const confirmation = await startPhoneSignIn(normalisePhoneE164(phone), containerId);
-      setPendingPhone({ confirmation, phone: normalisePhoneE164(phone) });
-    } catch (cause: unknown) {
-      const message = errorMessage(cause, "Could not send the verification code.");
-      setError(message);
-      throw cause;
-    }
-  }, []);
-
-  const verifyPhoneCode = useCallback(
-    async (code: string) => {
-      if (!pendingPhone) {
-        setError("Request a verification code first.");
-        throw new Error("Request a verification code first.");
-      }
-      setError(null);
-      try {
-        const credential = await confirmPhoneOtp(pendingPhone.confirmation, code);
-        const result = toUserCredentialResult(credential);
-        await ensureUserProfile(result.uid, {
-          ...(result.phoneNumber ? { phone: result.phoneNumber } : {}),
-          ...(result.displayName ? { name: result.displayName } : {}),
-          capabilities: [DEFAULT_CUSTOMER_CAPABILITY],
-        });
-        setPendingPhone(null);
-      } catch (cause: unknown) {
-        const message = errorMessage(cause, "That verification code is not valid.");
-        setError(message);
-        throw cause;
-      }
-    },
-    [pendingPhone],
-  );
-
-  const signInWithPassword = useCallback(async (email: string, password: string) => {
-    setError(null);
-    try {
-      await signInWithEmail(email, password);
-    } catch (cause: unknown) {
-      const message = errorMessage(cause, "Invalid email or password.");
-      setError(message);
-      throw cause;
-    }
-  }, []);
-
-  const registerWithPassword = useCallback(
-    async (
-      email: string,
-      password: string,
-      options?: { capability?: Capability; displayName?: string },
-    ) => {
-      setError(null);
-      try {
-        const credential = await registerWithEmail(email, password);
-        const result = toUserCredentialResult(credential);
-        // A new account may only self-assign a customer capability. Privileged
-        // roles are granted later by an admin through the same document.
-        const requested = options?.capability ? [options.capability] : [];
-        const capabilities = requested.filter((capability) =>
-          SELF_ASSIGNABLE_CAPABILITIES.includes(capability),
-        );
-        await ensureUserProfile(result.uid, {
-          email: result.email ?? email,
-          ...(options?.displayName ? { name: options.displayName } : {}),
-          capabilities,
-        });
-      } catch (cause: unknown) {
-        const message = errorMessage(cause, "Could not create that account.");
-        setError(message);
-        throw cause;
-      }
-    },
-    [],
-  );
-
-  const signOut = useCallback(async () => {
-    setError(null);
-    setPendingPhone(null);
-    await firebaseSignOut();
-  }, []);
-
-  const status = useMemo<AuthSession["status"]>(() => {
-    if (initialising) return "initialising";
-    return user ? "signed-in" : "signed-out";
-  }, [initialising, user]);
 
   return {
-    status,
-    identity,
-    error,
-    isAuthenticated: status === "signed-in",
-    isInitialising: initialising,
+    status: current.status,
+    identity: current.identity,
+    error: current.error,
+    isAuthenticated: current.status === "signed-in" && current.identity !== null,
+    isInitialising: current.status === "initialising",
     hasCapability,
     capabilitiesIn,
     provider: "firebase",
     signInWithPhone,
     verifyPhoneCode,
+    cancelPhoneSignIn,
     signInWithPassword,
     registerWithPassword,
     signOut,
+    clearError,
+    refreshIdentity,
+    pendingPhone: current.pendingPhone,
   };
 }

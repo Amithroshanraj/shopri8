@@ -3,7 +3,8 @@ import { LockKeyhole, Mail, Package } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { DEMO_WORKER_CREDENTIALS, useWorkerAuth } from "@/lib/workerAuth";
-import { consumeDemoReturnTo } from "@/lib/demoAuth";
+import { firebaseIsActive } from "@/lib/auth";
+import { consumeAuthReturnTo } from "@/lib/auth/returnTo";
 
 export const Route = createFileRoute("/worker/login")({
   head: () => ({
@@ -18,8 +19,10 @@ export const Route = createFileRoute("/worker/login")({
 function WorkerLogin() {
   const navigate = useNavigate();
   const { login } = useWorkerAuth();
-  const [email, setEmail] = useState<string>(DEMO_WORKER_CREDENTIALS.email);
-  const [password, setPassword] = useState<string>(DEMO_WORKER_CREDENTIALS.password);
+  // Demo credentials are only surfaced on the demo backend.
+  const isDemo = !firebaseIsActive();
+  const [email, setEmail] = useState<string>(isDemo ? DEMO_WORKER_CREDENTIALS.email : "");
+  const [password, setPassword] = useState<string>(isDemo ? DEMO_WORKER_CREDENTIALS.password : "");
   const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -29,7 +32,7 @@ function WorkerLogin() {
       await login({ email, password });
       toast.success("Welcome to your delivery tasks");
       navigate({
-        to: consumeDemoReturnTo("deliveryWorker", "/worker/dashboard") as never,
+        to: consumeAuthReturnTo("deliveryWorker", "/worker/dashboard") as never,
         replace: true,
       });
     } catch (error) {
@@ -54,12 +57,21 @@ function WorkerLogin() {
         </div>
 
         <div className="rounded-3xl border border-border bg-card/60 p-6 shadow-xl backdrop-blur-xl">
-          <div className="mb-5 rounded-2xl border border-primary/20 bg-primary/10 p-3 text-xs">
-            <p className="font-semibold text-soft-violet">Demo account</p>
-            <p className="mt-1 text-muted-foreground">
-              {DEMO_WORKER_CREDENTIALS.email} · {DEMO_WORKER_CREDENTIALS.password}
-            </p>
-          </div>
+          {isDemo ? (
+            <div className="mb-5 rounded-2xl border border-primary/20 bg-primary/10 p-3 text-xs">
+              <p className="font-semibold text-soft-violet">Demo account</p>
+              <p className="mt-1 text-muted-foreground">
+                {DEMO_WORKER_CREDENTIALS.email} · {DEMO_WORKER_CREDENTIALS.password}
+              </p>
+            </div>
+          ) : (
+            <div className="mb-5 rounded-2xl border border-primary/20 bg-primary/10 p-3 text-xs">
+              <p className="font-semibold text-soft-violet">Delivery partner accounts</p>
+              <p className="mt-1 text-muted-foreground">
+                Sign in with the email your SHOPRi8 admin registered.
+              </p>
+            </div>
+          )}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label htmlFor="worker-email" className="mb-1.5 block text-xs font-medium">

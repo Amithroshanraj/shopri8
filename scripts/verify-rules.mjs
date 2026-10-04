@@ -16,9 +16,10 @@
  */
 
 const PROJECT = "hyperlocal-commerce-c9abd";
-const HOST = "127.0.0.1";
-const AUTH = `http://${HOST}:9099/identitytoolkit.googleapis.com/v1`;
-const FS = `http://${HOST}:8081/v1/projects/${PROJECT}/databases/(default)/documents`;
+const AUTH_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099";
+const FIRESTORE_HOST = process.env.FIRESTORE_EMULATOR_HOST ?? "127.0.0.1:8081";
+const AUTH = `http://${AUTH_HOST}/identitytoolkit.googleapis.com/v1`;
+const FS = `http://${FIRESTORE_HOST}/v1/projects/${PROJECT}/databases/(default)/documents`;
 const KEY = "fake-api-key";
 
 const results = [];
@@ -280,6 +281,14 @@ async function main() {
   await expect("customer", "self-grant admin capability", "deny", () =>
     patchDoc(customer.idToken, `users/${customer.uid}`, { capabilities: ["customer", "admin"] }),
   );
+  await expect("customer", "self-grant retailer capability", "deny", () =>
+    patchDoc(customer.idToken, `users/${customer.uid}`, { capabilities: ["customer", "retailer"] }),
+  );
+  await expect("customer", "self-grant worker capability", "deny", () =>
+    patchDoc(customer.idToken, `users/${customer.uid}`, {
+      capabilities: ["customer", "deliveryWorker"],
+    }),
+  );
   await expect("customer", "edit own name", "allow", () =>
     patchDoc(customer.idToken, `users/${customer.uid}`, { name: "Cust Renamed" }),
   );
@@ -289,8 +298,11 @@ async function main() {
   await expect("admin", "read any profile", "allow", () =>
     getDoc(admin.idToken, `users/${customer.uid}`),
   );
-  await expect("admin", "grant admin capability", "allow", () =>
+  await expect("admin", "grant retailer capability", "allow", () =>
     patchDoc(admin.idToken, `users/${other.uid}`, { capabilities: ["customer", "retailer"] }),
+  );
+  await expect("admin", "grant admin capability", "deny", () =>
+    patchDoc(admin.idToken, `users/${other.uid}`, { capabilities: ["customer", "admin"] }),
   );
 
   // --- shops -------------------------------------------------------------

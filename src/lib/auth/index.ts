@@ -5,15 +5,14 @@
  * configuration, so a screen written against the shared contract keeps working
  * across the switch.
  *
- * IMPORTANT: no existing screen calls this yet. `useAuth`, `useRetailerAuth`,
- * `useWorkerAuth` and `useAdminAuth` still wrap `useDemoSession` directly, which
- * is why every portal behaves exactly as it did before the Firebase foundation
- * was added. Migrating a portal means switching its hook to `useAuthSession`,
- * one portal at a time.
+ * `usePortalAccount` in `./portalSession` is what the three portal hooks and the
+ * customer gate use: it adds capability enforcement on top of the same two
+ * adapters. A portal is a capability, not merely a signed-in account.
  */
 
-import { useFirebaseAuthSession } from "./firebaseAuthProvider";
+import { isFirebaseActive } from "../firebase";
 import { useDemoAuthSession } from "./demoAuthProvider";
+import { useFirebaseAuthSession } from "./firebaseAuthProvider";
 import type { DemoRole } from "../demoAuth";
 import type { Capability } from "../types";
 import type { AuthSession } from "./types";
@@ -31,9 +30,34 @@ export {
 } from "./types";
 
 export { useDemoAuthSession } from "./demoAuthProvider";
-export { useFirebaseAuthSession } from "./firebaseAuthProvider";
+export {
+  useFirebaseAuthSession,
+  cancelPhoneSignIn,
+  clearError,
+  refreshIdentity,
+  registerWithPassword,
+  signInWithPassword,
+  signInWithPhone,
+  signOut as signOutOfFirebase,
+  verifyPhoneCode,
+  type FirebaseAuthSession,
+  type PendingPhoneSignIn,
+} from "./firebaseAuthProvider";
 
-import { isFirebaseActive } from "../firebase";
+export {
+  MissingCapabilityError,
+  PORTAL_ROLE_LABEL,
+  firebaseIsActive,
+  firstPortalCapability,
+  signInForPortal,
+  usePortalAccount,
+  type PortalAccount,
+  type PortalCapability,
+} from "./portalSession";
+
+export { AUTH_CODES, isFirebaseAuthError, toAuthErrorMessage } from "./authErrors";
+
+export { useAccountLinking, type AccountLinking, type LinkResult } from "./accountLinking";
 
 /**
  * Session for a portal, from whichever backend is active.

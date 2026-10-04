@@ -66,6 +66,12 @@ service cloud.firestore {
       return hasCapability('admin');
     }
 
+    function doesNotGrantAdmin() {
+      return !('capabilities' in request.resource.data)
+        || !('admin' in request.resource.data.capabilities)
+        || ('admin' in resource.data.capabilities);
+    }
+
     /** True when the signed-in retailer owns this shop document. */
     function ownsShop(shopId) {
       return isRetailer()
@@ -121,7 +127,7 @@ service cloud.firestore {
        */
       allow update: if (isUser(uid) && !request.resource.data.diff(resource.data).affectedKeys()
                          .hasAny(['capabilities']))
-                    || isAdmin();
+                    || (isAdmin() && doesNotGrantAdmin());
 
       // Users may delete themselves; admins may delete anyone.
       allow delete: if isUser(uid) || isAdmin();

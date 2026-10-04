@@ -13,8 +13,10 @@ import { useEffect, useMemo, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { CartProvider } from "../lib/cart";
-import { consumeDemoReturnTo, rememberDemoReturnTo, useDemoSession } from "../lib/demoAuth";
+import { useDemoSession } from "../lib/demoAuth";
 import { ROLE_LANDING, resolveCustomerGate } from "../lib/customerGate";
+import { firebaseIsActive, useFirebaseAuthSession } from "../lib/auth";
+import { consumeAuthReturnTo, rememberAuthReturnTo } from "../lib/auth/returnTo";
 import { Toaster } from "../components/ui/sonner";
 
 function NotFoundComponent() {
@@ -135,22 +137,44 @@ function RootComponent() {
  * Guards the customer storefront. Role portals keep their own guards, so they
  * are never redirected here. Everything else requires a customer session:
  * signed-out visitors land on /auth and return to their deep link afterwards.
+ *
+ * Under Firebase the gate is capability-driven: `users/{uid}` must contain
+ * `customer`. A retailer, delivery worker or admin account is not admitted to the
+ * storefront on the strength of its credentials alone, and a multi-capability
+ * account such as `["customer", "deliveryWorker"]` is admitted while its portal
+ * guard still opens /worker separately.
  */
 function CustomerRouteGate() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const navigate = useNavigate();
-  const { loading, activeRole } = useDemoSession("customer");
+  const demo = useDemoSession("customer");
+  const firebase = useFirebaseAuthSession();
+  const useFirebase = firebaseIsActive();
+
+  const capabilities = useMemo(
+    () => (useFirebase ? (firebase.identity?.capabilities ?? []) : []),
+    [firebase.identity, useFirebase],
+  );
   const decision = useMemo(
-    () => resolveCustomerGate({ pathname, activeRole, loading }),
-    [pathname, activeRole, loading],
+    () =>
+      resolveCustomerGate({
+        pathname,
+        // The demo store owns exactly one role at a time and is ignored entirely
+        // once Firebase is the active backend.
+        activeRole: useFirebase ? null : demo.activeRole,
+        canBrowseStorefront: useFirebase ? capabilities.includes("customer") : null,
+        capabilities,
+        loading: useFirebase ? firebase.isInitialising : demo.loading,
+      }),
+    [pathname, useFirebase, demo.activeRole, demo.loading, firebase.isInitialising, capabilities],
   );
 
   useEffect(() => {
     if (!decision.redirect) return;
-    if (decision.remember) rememberDemoReturnTo("customer", pathname);
+    if (decision.remember) rememberAuthReturnTo("customer", pathname);
     const to =
       decision.redirect.kind === "customer-return-to"
-        ? consumeDemoReturnTo("customer", ROLE_LANDING.customer)
+        ? consumeAuthReturnTo("customer", ROLE_LANDING.customer)
         : decision.redirect.to;
     navigate({ to: to as never, replace: true });
   }, [decision, navigate, pathname]);

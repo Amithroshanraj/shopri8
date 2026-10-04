@@ -3,7 +3,8 @@ import { Lock, Mail, Store } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { DEMO_RETAILER_CREDENTIALS, useRetailerAuth } from "@/lib/retailerAuth";
-import { consumeDemoReturnTo } from "@/lib/demoAuth";
+import { firebaseIsActive } from "@/lib/auth";
+import { consumeAuthReturnTo } from "@/lib/auth/returnTo";
 import { Wordmark } from "@/components/brand/Wordmark";
 
 export const Route = createFileRoute("/retailer/login")({
@@ -21,8 +22,13 @@ export const Route = createFileRoute("/retailer/login")({
 function RetailerLogin() {
   const navigate = useNavigate();
   const { login, isAuthenticated } = useRetailerAuth();
-  const [email, setEmail] = useState<string>(DEMO_RETAILER_CREDENTIALS.email);
-  const [password, setPassword] = useState<string>(DEMO_RETAILER_CREDENTIALS.password);
+  // Firebase mode authenticates a real Firebase account; the demo panel and its
+  // credentials are hidden entirely so they cannot be mistaken for a real login.
+  const isDemo = !firebaseIsActive();
+  const [email, setEmail] = useState<string>(isDemo ? DEMO_RETAILER_CREDENTIALS.email : "");
+  const [password, setPassword] = useState<string>(
+    isDemo ? DEMO_RETAILER_CREDENTIALS.password : "",
+  );
   const [loading, setLoading] = useState(false);
 
   // Redirect if already authenticated
@@ -49,7 +55,7 @@ function RetailerLogin() {
       await login({ email, password });
       toast.success("Welcome back!", { description: "Logged in to Retailer Portal" });
       navigate({
-        to: consumeDemoReturnTo("retailer", "/retailer/dashboard") as never,
+        to: consumeAuthReturnTo("retailer", "/retailer/dashboard") as never,
         replace: true,
       });
     } catch (error) {
@@ -84,23 +90,35 @@ function RetailerLogin() {
         </div>
 
         <div className="mb-5 rounded-2xl border border-warning/30 bg-warning/10 p-4 text-xs">
-          <div className="flex items-center justify-between">
-            <span className="font-semibold text-warning">Demo Mode Active</span>
-            <button
-              type="button"
-              onClick={handleFillDemo}
-              className="text-[0.7rem] font-medium text-warning underline hover:text-warning/80"
-            >
-              Reset Demo Info
-            </button>
-          </div>
-          <p className="mt-1 text-muted-foreground">Local demo authentication is active.</p>
-          <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[0.7rem] text-foreground">
-            <dt className="text-muted-foreground">Email</dt>
-            <dd>{DEMO_RETAILER_CREDENTIALS.email}</dd>
-            <dt className="text-muted-foreground">Password</dt>
-            <dd>{DEMO_RETAILER_CREDENTIALS.password}</dd>
-          </dl>
+          {isDemo ? (
+            <>
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-warning">Demo Mode Active</span>
+                <button
+                  type="button"
+                  onClick={handleFillDemo}
+                  className="text-[0.7rem] font-medium text-warning underline hover:text-warning/80"
+                >
+                  Reset Demo Info
+                </button>
+              </div>
+              <p className="mt-1 text-muted-foreground">Local demo authentication is active.</p>
+              <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[0.7rem] text-foreground">
+                <dt className="text-muted-foreground">Email</dt>
+                <dd>{DEMO_RETAILER_CREDENTIALS.email}</dd>
+                <dt className="text-muted-foreground">Password</dt>
+                <dd>{DEMO_RETAILER_CREDENTIALS.password}</dd>
+              </dl>
+            </>
+          ) : (
+            <>
+              <span className="font-semibold text-soft-violet">Retailer accounts</span>
+              <p className="mt-1 text-muted-foreground">
+                Sign in with the email your SHOPRi8 admin registered. Retailer access is granted per
+                account.
+              </p>
+            </>
+          )}
         </div>
 
         <div className="rounded-3xl border border-border bg-card/60 p-6 backdrop-blur-md shadow-xl">

@@ -1,7 +1,7 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { useAdminAuth } from "@/lib/adminAuth";
-import { rememberDemoReturnTo } from "@/lib/demoAuth";
+import { rememberAuthReturnTo } from "@/lib/auth/returnTo";
 import { ADMIN_NAV, portalNavKeyFor } from "@/lib/portalNav";
 import { PORTAL_CONTENT_PADDING, PortalBottomNav } from "@/components/layout/PortalBottomNav";
 import { cn } from "@/lib/utils";
@@ -25,7 +25,7 @@ export function AdminShell() {
     if (isLogin && isAuthenticated) {
       navigate({ to: "/admin/dashboard", replace: true });
     } else if (!isLogin && !isAuthenticated) {
-      rememberDemoReturnTo("admin", pathname);
+      rememberAuthReturnTo("admin", pathname);
       navigate({ to: "/admin/login", replace: true });
     } else if (pathname === "/admin" && isAuthenticated) {
       navigate({ to: "/admin/dashboard", replace: true });

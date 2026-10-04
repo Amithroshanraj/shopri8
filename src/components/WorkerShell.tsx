@@ -2,7 +2,7 @@ import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-route
 import { Package } from "lucide-react";
 import { useEffect } from "react";
 import { useWorkerAuth } from "@/lib/workerAuth";
-import { rememberDemoReturnTo } from "@/lib/demoAuth";
+import { rememberAuthReturnTo } from "@/lib/auth/returnTo";
 import { WORKER_NAV, portalNavKeyFor } from "@/lib/portalNav";
 import { PORTAL_CONTENT_PADDING, PortalBottomNav } from "@/components/layout/PortalBottomNav";
 import { cn } from "@/lib/utils";
@@ -25,7 +25,7 @@ export function WorkerShell() {
     if (isLogin && isAuthenticated) {
       navigate({ to: "/worker/dashboard", replace: true });
     } else if (!isLogin && !isAuthenticated) {
-      rememberDemoReturnTo("deliveryWorker", pathname);
+      rememberAuthReturnTo("deliveryWorker", pathname);
       navigate({ to: "/worker/login", replace: true });
     }
   }, [isAuthenticated, isLogin, loading, navigate, pathname]);

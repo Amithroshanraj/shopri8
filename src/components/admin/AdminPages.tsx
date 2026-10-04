@@ -17,7 +17,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { DEMO_ADMIN_CREDENTIALS, useAdminAuth } from "@/lib/adminAuth";
-import { consumeDemoReturnTo } from "@/lib/demoAuth";
+import { firebaseIsActive } from "@/lib/auth";
+import { consumeAuthReturnTo } from "@/lib/auth/returnTo";
 import {
   useAdminData,
   type ManagedRole,
@@ -219,8 +220,10 @@ function customerName(order: Order) {
 export function AdminLoginPage() {
   const { login, isAuthenticated, loading, error } = useAdminAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState<string>(DEMO_ADMIN_CREDENTIALS.email);
-  const [password, setPassword] = useState<string>(DEMO_ADMIN_CREDENTIALS.password);
+  // The demo credentials panel is hidden on the Firebase backend.
+  const isDemo = !firebaseIsActive();
+  const [email, setEmail] = useState<string>(isDemo ? DEMO_ADMIN_CREDENTIALS.email : "");
+  const [password, setPassword] = useState<string>(isDemo ? DEMO_ADMIN_CREDENTIALS.password : "");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -231,9 +234,8 @@ export function AdminLoginPage() {
     event.preventDefault();
     setSubmitting(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 200));
       await login(email, password);
-      navigate({ to: consumeDemoReturnTo("admin", "/admin/dashboard") as never, replace: true });
+      navigate({ to: consumeAuthReturnTo("admin", "/admin/dashboard") as never, replace: true });
     } catch {
       // The hook exposes the message for the form.
     } finally {
@@ -293,11 +295,20 @@ export function AdminLoginPage() {
           </button>
         </form>
         <div className="mt-5 rounded-xl border border-warning/20 bg-warning/5 p-3 text-xs text-muted-foreground">
-          <p className="font-semibold text-warning">Demo authentication</p>
-          <p className="mt-1">
-            {DEMO_ADMIN_CREDENTIALS.email} / {DEMO_ADMIN_CREDENTIALS.password}
-          </p>
-          <p className="mt-2">This client-side demo login is not production-secure.</p>
+          {isDemo ? (
+            <>
+              <p className="font-semibold text-warning">Demo authentication</p>
+              <p className="mt-1">
+                {DEMO_ADMIN_CREDENTIALS.email} / {DEMO_ADMIN_CREDENTIALS.password}
+              </p>
+              <p className="mt-2">This client-side demo login is not production-secure.</p>
+            </>
+          ) : (
+            <>
+              <p className="font-semibold text-soft-violet">Administrator access</p>
+              <p className="mt-1">Only accounts with the admin capability can open this portal.</p>
+            </>
+          )}
         </div>
         <a
           href="/auth?step=roles"

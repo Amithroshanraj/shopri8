@@ -18,8 +18,11 @@
  */
 
 import {
+  EmailAuthProvider,
+  PhoneAuthProvider,
   RecaptchaVerifier,
   createUserWithEmailAndPassword,
+  linkWithCredential,
   onAuthStateChanged,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
@@ -73,8 +76,9 @@ export { isFirebaseConfigured };
  * mount this unconditionally without breaking SSR.
  */
 export function subscribeToAuth(callback: (user: User | null) => void): () => void {
+  if (!isBrowser) return () => {};
   const auth = getFirebaseAuth();
-  if (!auth || !isBrowser) {
+  if (!auth) {
     callback(null);
     return () => {};
   }
@@ -82,14 +86,47 @@ export function subscribeToAuth(callback: (user: User | null) => void): () => vo
 }
 
 export function getCurrentUser(): User | null {
+  if (!isBrowser) return null;
   const auth = getFirebaseAuth();
-  if (!auth || !isBrowser) return null;
+  if (!auth) return null;
   return auth.currentUser;
 }
 
 // ---------------------------------------------------------------------------
 // Customer — phone + OTP
 // ---------------------------------------------------------------------------
+
+/**
+ * The reCAPTCHA verifier for the phone flow currently in progress.
+ *
+ * Kept module-scoped so a resend replaces the previous widget instead of leaking
+ * a second invisible iframe, and so the UI can drop the widget when the user backs
+ * out of the code step.
+ */
+let activeVerifier: RecaptchaVerifier | null = null;
+
+function createVerifier(containerId: string): RecaptchaVerifier {
+  clearPhoneVerification();
+  const verifier = new RecaptchaVerifier(requireAuth(), containerId, { size: "invisible" });
+  activeVerifier = verifier;
+  return verifier;
+}
+
+/**
+ * Removes the reCAPTCHA widget for an abandoned phone attempt.
+ *
+ * Safe to call when nothing is pending and on the server.
+ */
+export function clearPhoneVerification(): void {
+  const verifier = activeVerifier;
+  activeVerifier = null;
+  if (!verifier || !isBrowser) return;
+  try {
+    verifier.clear();
+  } catch {
+    // The widget may already be gone; nothing to release.
+  }
+}
 
 /**
  * Starts customer phone sign-in.
@@ -104,8 +141,14 @@ export async function startPhoneSignIn(
 ): Promise<ConfirmationResult> {
   requireBrowser("startPhoneSignIn");
   const auth = requireAuth();
-  const verifier = new RecaptchaVerifier(auth, containerId, { size: "invisible" });
-  return signInWithPhoneNumber(auth, normalisePhoneE164(phoneE164), verifier);
+  const verifier = createVerifier(containerId);
+  try {
+    return await signInWithPhoneNumber(auth, normalisePhoneE164(phoneE164), verifier);
+  } catch (cause: unknown) {
+    // A failed send leaves no confirmation to confirm, so release the widget.
+    clearPhoneVerification();
+    throw cause;
+  }
 }
 
 /** Verifies the SMS code. No demo/fake code path exists here. */
@@ -149,7 +192,70 @@ export async function setDisplayName(user: User, displayName: string) {
 export async function signOut() {
   const auth = getFirebaseAuth();
   if (!auth || !isBrowser) return;
+  clearPhoneVerification();
   await firebaseSignOut(auth);
+}
+
+// ---------------------------------------------------------------------------
+// Account linking — one Firebase UID, several sign-in methods
+// ---------------------------------------------------------------------------
+
+/**
+ * Attaches an email + password credential to the account that is already signed
+ * in.
+ *
+ * Firebase refuses the link when the credential belongs to a different account
+ * (`auth/credential-already-in-use` / `auth/email-already-in-use`), so two
+ * unrelated users are never merged. The UI reports that case instead of
+ * attempting a merge.
+ */
+export async function linkEmailToUser(user: User, email: string, password: string) {
+  requireBrowser("linkEmailToUser");
+  const credential = EmailAuthProvider.credential(email.trim(), password);
+  return linkWithCredential(user, credential);
+}
+
+/**
+ * Starts phone verification for an account that is already signed in.
+ *
+ * Same reCAPTCHA requirements as `startPhoneSignIn`; the returned
+ * `ConfirmationResult` carries the verification id that
+ * `linkPhoneToUser` needs.
+ */
+export async function startPhoneLink(
+  phoneE164: string,
+  containerId: string,
+): Promise<ConfirmationResult> {
+  requireBrowser("startPhoneLink");
+  const auth = requireAuth();
+  const verifier = createVerifier(containerId);
+  try {
+    return await signInWithPhoneNumber(auth, normalisePhoneE164(phoneE164), verifier);
+  } catch (cause: unknown) {
+    clearPhoneVerification();
+    throw cause;
+  }
+}
+
+/**
+ * Completes phone linking for a signed-in account.
+ *
+ * `user` must be the account being extended — linking onto a different account
+ * would silently reassign the number, which Firebase prevents here by requiring
+ * an explicit `user`.
+ */
+export async function linkPhoneToUser(
+  user: User,
+  confirmation: ConfirmationResult,
+  code: string,
+): Promise<UserCredential> {
+  requireBrowser("linkPhoneToUser");
+  const verificationId = confirmation.verificationId;
+  if (!verificationId) {
+    throw new Error("This verification attempt expired. Request a new code.");
+  }
+  const credential = PhoneAuthProvider.credential(verificationId, code.trim());
+  return linkWithCredential(user, credential);
 }
 
 // ---------------------------------------------------------------------------

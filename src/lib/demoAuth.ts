@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { isFirebaseActive } from "./firebase/config";
+import { clearAuthReturnTo } from "./auth/returnTo";
 
 export type DemoRole = "customer" | "retailer" | "deliveryWorker" | "admin";
 
@@ -158,10 +160,15 @@ function publishStore(next: DemoAuthStore) {
 }
 
 export function useDemoSession(role: DemoRole) {
-  const [store, setStore] = useState(sharedStore);
-  const [loading, setLoading] = useState(true);
+  const [store, setStore] = useState(isFirebaseActive ? EMPTY_STORE : sharedStore);
+  const [loading, setLoading] = useState(!isFirebaseActive);
 
   useEffect(() => {
+    if (isFirebaseActive) {
+      setStore(EMPTY_STORE);
+      setLoading(false);
+      return;
+    }
     const listener = (next: DemoAuthStore) => {
       setStore(next);
       setLoading(false);
@@ -193,6 +200,9 @@ export function useDemoSession(role: DemoRole) {
   const session = store.activeRole === role ? (store.sessions[role] ?? null) : null;
 
   const startSession = (newSession: Omit<DemoAuthSession, "authenticated" | "loginTimestamp">) => {
+    if (isFirebaseActive) {
+      throw new Error("Demo sign-in is unavailable while Firebase is active.");
+    }
     const session: DemoAuthSession = {
       ...newSession,
       authenticated: true,
@@ -208,6 +218,7 @@ export function useDemoSession(role: DemoRole) {
   const updateSession = (
     updates: Partial<Pick<DemoAuthSession, "displayName" | "email" | "phone" | "metadata">>,
   ) => {
+    if (isFirebaseActive) return;
     const current = sharedStore.sessions[role];
     if (!current) return;
     publishStore({
@@ -217,9 +228,10 @@ export function useDemoSession(role: DemoRole) {
   };
 
   const endSession = () => {
+    if (isFirebaseActive) return;
     const sessions = { ...sharedStore.sessions };
     delete sessions[role];
-    clearDemoReturnTo(role);
+    clearAuthReturnTo(role);
     publishStore({
       activeRole: sharedStore.activeRole === role ? null : sharedStore.activeRole,
       sessions,
@@ -235,65 +247,4 @@ export function useDemoSession(role: DemoRole) {
     updateSession,
     endSession,
   };
-}
-
-const RETURN_TO_KEY_PREFIX = "shopri8.demo-auth.return-to.";
-const ROLE_PORTAL_PREFIXES = ["/retailer", "/worker", "/admin"] as const;
-
-const RETURN_PREFIXES: Record<DemoRole, string> = {
-  customer: "/",
-  retailer: "/retailer/",
-  deliveryWorker: "/worker/",
-  admin: "/admin/",
-};
-
-const LOGIN_PATHS: Record<DemoRole, string> = {
-  customer: "/auth",
-  retailer: "/retailer/login",
-  deliveryWorker: "/worker/login",
-  admin: "/admin/login",
-};
-
-/**
- * The customer storefront owns every path outside the role portals, so only the
- * welcome screen and the other portals are rejected explicitly.
- */
-export function isRememberablePath(role: DemoRole, pathname: string) {
-  if (!pathname.startsWith(RETURN_PREFIXES[role])) return false;
-  if (pathname === LOGIN_PATHS[role]) return false;
-  if (pathname.includes("//")) return false;
-  if (role === "customer" && ROLE_PORTAL_PREFIXES.some((p) => pathname.startsWith(`${p}/`))) {
-    return false;
-  }
-  return true;
-}
-
-export function rememberDemoReturnTo(role: DemoRole, pathname: string) {
-  if (isRememberablePath(role, pathname)) {
-    try {
-      sessionStorage.setItem(`${RETURN_TO_KEY_PREFIX}${role}`, pathname);
-    } catch {
-      // Login still works with its role's default landing page.
-    }
-  }
-}
-
-export function consumeDemoReturnTo(role: DemoRole, fallback: string) {
-  try {
-    const key = `${RETURN_TO_KEY_PREFIX}${role}`;
-    const pathname = sessionStorage.getItem(key);
-    sessionStorage.removeItem(key);
-    if (pathname && isRememberablePath(role, pathname)) return pathname;
-  } catch {
-    // Fall through to the role's default landing page.
-  }
-  return fallback;
-}
-
-export function clearDemoReturnTo(role: DemoRole) {
-  try {
-    sessionStorage.removeItem(`${RETURN_TO_KEY_PREFIX}${role}`);
-  } catch {
-    // The return path is optional state.
-  }
 }

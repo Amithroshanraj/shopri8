@@ -2,7 +2,7 @@ import { Link, useRouterState, useNavigate, Outlet } from "@tanstack/react-route
 import { useEffect } from "react";
 import { Store } from "lucide-react";
 import { useRetailerAuth } from "@/lib/retailerAuth";
-import { rememberDemoReturnTo } from "@/lib/demoAuth";
+import { rememberAuthReturnTo } from "@/lib/auth/returnTo";
 import { useRetailerStore } from "@/lib/retailerStore";
 import {
   RETAILER_NAV,
@@ -30,7 +30,7 @@ export function RetailerShell() {
   // Redirect to login if user is not authenticated and trying to access protected routes
   useEffect(() => {
     if (!isLoginPage && !loading && (!isAuthenticated || !isRetailer)) {
-      rememberDemoReturnTo("retailer", pathname);
+      rememberAuthReturnTo("retailer", pathname);
       navigate({ to: "/retailer/login", replace: true });
     }
   }, [isLoginPage, loading, isAuthenticated, isRetailer, navigate, pathname]);

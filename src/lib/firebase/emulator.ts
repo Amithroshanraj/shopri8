@@ -37,7 +37,7 @@ export function connectAuth(auth: Auth): void {
   if (!claim("auth")) return;
   connectAuthEmulator(
     auth,
-    `http://${readEmulatorHost("FIREBASE_AUTH_EMULATOR_HOST", DEFAULT_EMULATOR_PORTS.auth)}`,
+    `http://${readEmulatorHost("VITE_FIREBASE_AUTH_EMULATOR_HOST", DEFAULT_EMULATOR_PORTS.auth)}`,
     {
       disableWarnings: true,
     },
@@ -48,22 +48,20 @@ export function connectAuth(auth: Auth): void {
 export function connectFirestore(db: Firestore): void {
   if (!isBrowser || !isEmulatorRequested) return;
   if (!claim("firestore")) return;
-  const [host, port] = readEmulatorHost(
-    "FIRESTORE_EMULATOR_HOST",
-    DEFAULT_EMULATOR_PORTS.firestore,
-  ).split(":");
-  connectFirestoreEmulator(db, `http://${host}`, Number(port));
+  const address = new URL(
+    `http://${readEmulatorHost("VITE_FIRESTORE_EMULATOR_HOST", DEFAULT_EMULATOR_PORTS.firestore)}`,
+  );
+  connectFirestoreEmulator(db, address.hostname, Number(address.port));
 }
 
 /** Points Cloud Storage at the local emulator. */
 export function connectStorage(storage: FirebaseStorage): void {
   if (!isBrowser || !isEmulatorRequested) return;
   if (!claim("storage")) return;
-  const [host, port] = readEmulatorHost(
-    "FIREBASE_STORAGE_EMULATOR_HOST",
-    DEFAULT_EMULATOR_PORTS.storage,
-  ).split(":");
-  connectStorageEmulator(storage, `http://${host}`, Number(port));
+  const address = new URL(
+    `http://${readEmulatorHost("VITE_FIREBASE_STORAGE_EMULATOR_HOST", DEFAULT_EMULATOR_PORTS.storage)}`,
+  );
+  connectStorageEmulator(storage, address.hostname, Number(address.port));
 }
 
 /** Connects every supplied service. Safe to call more than once. */

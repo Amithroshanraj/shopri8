@@ -37,23 +37,23 @@
         { "fieldPath": "deliveryWorkerId", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
-    },
-    {
-      "comment": "Shop lookup by owner, used by the retailer portal.",
-      "collectionGroup": "shops",
-      "queryScope": "COLLECTION",
-      "fields": [{ "fieldPath": "ownerId", "order": "ASCENDING" }]
-    },
-    {
-      "comment": "Users holding a given capability. Single-field; listed for explicitness.",
-      "collectionGroup": "users",
-      "queryScope": "COLLECTION",
-      "fields": [{ "fieldPath": "capabilities", "order": "ASCENDING" }]
     }
   ],
   "fieldOverrides": [
     {
-      "comment": "Catalogue image refs can be long shared asset paths or Storage download URLs.",
+      "comment": "shops.ownerId and users.capabilities are single-field queries, served by Firestore's automatic single-field indexes. Declaring them as composite indexes is rejected by the API.",
+      "collectionGroup": "shops",
+      "fieldPath": "ownerId",
+      "indexes": []
+    },
+    {
+      "comment": "Capability lookups use array-contains on users.capabilities, covered by the automatic index.",
+      "collectionGroup": "users",
+      "fieldPath": "capabilities",
+      "indexes": []
+    },
+    {
+      "comment": "Catalogue image refs can be long shared asset paths or Storage download URLs. Excluded from indexing.",
       "collectionGroup": "products",
       "fieldPath": "imageSource.ref",
       "indexes": []

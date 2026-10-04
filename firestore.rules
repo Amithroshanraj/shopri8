@@ -197,7 +197,7 @@ service cloud.firestore {
       allow read: if isAdmin()
                   || (isSignedIn() && resource.data.customerId == request.auth.uid)
                   || (isRetailer() && ownsShop(resource.data.shopId))
-                  || isAssignedWorker(orderId);
+                  || isAssignedWorker();
 
       /**
        * Customers create their own orders. The order must start at a real
@@ -250,7 +250,7 @@ service cloud.firestore {
       }
 
       function validWorkerUpdate() {
-        return isAssignedWorker(orderId)
+        return isAssignedWorker()
           && validOrderTransition(resource.data.orderStatus, request.resource.data.orderStatus)
           && request.resource.data.orderStatus in [
                'DELIVERY_ASSIGNED', 'PICKED_UP', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED'
@@ -266,7 +266,7 @@ service cloud.firestore {
        * cannot run a query for "the task whose orderId matches". An order without
        * that field has no assigned worker and nobody may advance it as a worker.
        */
-      function isAssignedWorker(id) {
+      function isAssignedWorker() {
         return isWorker()
           && 'deliveryTaskId' in resource.data
           && resource.data.deliveryTaskId is string

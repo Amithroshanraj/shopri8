@@ -78,6 +78,26 @@ service cloud.firestore {
       return isRetailer() && ownsShop(productData.shopId);
     }
 
+    /**
+     * Legal order transitions, mirrored from `src/lib/retailerStore.tsx` and
+     * `src/lib/workerStore.tsx`.
+     *
+     * Checking only "is the target status in my allowed set" is not enough: that
+     * lets a client skip states, for example DELIVERY_ASSIGNED straight to
+     * OUT_FOR_DELIVERY. Both the current and the next status are pinned here so
+     * the lifecycle cannot be jumped.
+     */
+    function validOrderTransition(from, to) {
+      return (from == 'PLACED'                && to == 'RETAILER_REVIEW')
+          || (from == 'RETAILER_REVIEW'       && to in ['ACCEPTED', 'REJECTED'])
+          || (from == 'ACCEPTED'              && to == 'PREPARING')
+          || (from == 'PREPARING'             && to == 'READY_FOR_PICKUP')
+          || (from == 'READY_FOR_PICKUP'      && to == 'DELIVERY_ASSIGNED')
+          || (from == 'DELIVERY_ASSIGNED'     && to in ['PICKED_UP', 'DELIVERY_FAILED'])
+          || (from == 'PICKED_UP'             && to in ['OUT_FOR_DELIVERY', 'DELIVERY_FAILED'])
+          || (from == 'OUT_FOR_DELIVERY'      && to in ['DELIVERED', 'DELIVERY_FAILED']);
+    }
+
     // -----------------------------------------------------------------------
     // users/{uid}
     // -----------------------------------------------------------------------
@@ -218,6 +238,7 @@ service cloud.firestore {
       function validRetailerUpdate() {
         return isRetailer()
           && ownsShop(resource.data.shopId)
+          && validOrderTransition(resource.data.orderStatus, request.resource.data.orderStatus)
           && request.resource.data.orderStatus in [
                'RETAILER_REVIEW', 'ACCEPTED', 'PREPARING', 'READY_FOR_PICKUP', 'REJECTED'
              ]
@@ -230,6 +251,7 @@ service cloud.firestore {
 
       function validWorkerUpdate() {
         return isAssignedWorker(orderId)
+          && validOrderTransition(resource.data.orderStatus, request.resource.data.orderStatus)
           && request.resource.data.orderStatus in [
                'DELIVERY_ASSIGNED', 'PICKED_UP', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED'
              ]
@@ -237,12 +259,20 @@ service cloud.firestore {
                .hasOnly(['orderStatus', 'statusHistory', 'updatedAt']);
       }
 
-      /** The caller is the `deliveryWorkerId` on this order's delivery task. */
+      /**
+       * The caller is the `deliveryWorkerId` on this order's delivery task.
+       *
+       * The task is located through `deliveryTaskId` on the order, because rules
+       * cannot run a query for "the task whose orderId matches". An order without
+       * that field has no assigned worker and nobody may advance it as a worker.
+       */
       function isAssignedWorker(id) {
         return isWorker()
-          && exists(/databases/$(database)/documents/deliveryTasks/$(id))
-          && get(/databases/$(database)/documents/deliveryTasks/$(id)).data.deliveryWorkerId
-               == request.auth.uid;
+          && 'deliveryTaskId' in resource.data
+          && resource.data.deliveryTaskId is string
+          && exists(/databases/$(database)/documents/deliveryTasks/$(resource.data.deliveryTaskId))
+          && get(/databases/$(database)/documents/deliveryTasks/$(resource.data.deliveryTaskId))
+               .data.deliveryWorkerId == request.auth.uid;
       }
     }
 
@@ -266,6 +296,10 @@ service cloud.firestore {
       /**
        * Claiming: an AVAILABLE task with no worker becomes this caller's task.
        * A worker may then move their own task along the delivery flow.
+       *
+       * `deliveryWorkerId` is checked with `in` rather than `== null` because an
+       * unclaimed task omits the field entirely, and reading a missing field
+       * raises an error that would fail the whole rule.
        */
       allow update: if isAdmin() || validClaim() || validWorkerAdvance();
 
@@ -274,19 +308,29 @@ service cloud.firestore {
       function validClaim() {
         return isWorker()
           && resource.data.status == 'AVAILABLE'
-          && resource.data.deliveryWorkerId == null
+          && !('deliveryWorkerId' in resource.data.keys())
           && request.resource.data.status == 'DELIVERY_ASSIGNED'
           && request.resource.data.deliveryWorkerId == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(['status', 'deliveryWorkerId', 'updatedAt']);
       }
 
+      /**
+       * Legal task transitions, mirrored from `src/lib/workerStore.tsx`.
+       * As with orders, the current status is pinned so a state cannot be
+       * skipped.
+       */
+      function validTaskTransition(from, to) {
+        return (from == 'AVAILABLE'          && to == 'DELIVERY_ASSIGNED')
+            || (from == 'DELIVERY_ASSIGNED' && to in ['PICKED_UP', 'DELIVERY_FAILED'])
+            || (from == 'PICKED_UP'         && to in ['OUT_FOR_DELIVERY', 'DELIVERY_FAILED'])
+            || (from == 'OUT_FOR_DELIVERY'  && to in ['DELIVERED', 'DELIVERY_FAILED']);
+      }
+
       function validWorkerAdvance() {
         return isWorker()
           && resource.data.deliveryWorkerId == request.auth.uid
-          && request.resource.data.status in [
-               'PICKED_UP', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED'
-             ]
+          && validTaskTransition(resource.data.status, request.resource.data.status)
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly([
                  'status', 'failureReason', 'failureNotes', 'failureAt', 'updatedAt'

@@ -16,7 +16,12 @@
 import { connectAuthEmulator, type Auth } from "firebase/auth";
 import { connectFirestoreEmulator, type Firestore } from "firebase/firestore";
 import { connectStorageEmulator, type FirebaseStorage } from "firebase/storage";
-import { isBrowser, isEmulatorRequested, readEmulatorHost } from "./emulatorEnv";
+import {
+  DEFAULT_EMULATOR_PORTS,
+  isBrowser,
+  isEmulatorRequested,
+  readEmulatorHost,
+} from "./emulatorEnv";
 
 const connected = new Set<string>();
 
@@ -30,16 +35,23 @@ function claim(key: string): boolean {
 export function connectAuth(auth: Auth): void {
   if (!isBrowser || !isEmulatorRequested) return;
   if (!claim("auth")) return;
-  connectAuthEmulator(auth, `http://${readEmulatorHost("FIREBASE_AUTH_EMULATOR_HOST", 9099)}`, {
-    disableWarnings: true,
-  });
+  connectAuthEmulator(
+    auth,
+    `http://${readEmulatorHost("FIREBASE_AUTH_EMULATOR_HOST", DEFAULT_EMULATOR_PORTS.auth)}`,
+    {
+      disableWarnings: true,
+    },
+  );
 }
 
 /** Points Firestore at the local emulator. */
 export function connectFirestore(db: Firestore): void {
   if (!isBrowser || !isEmulatorRequested) return;
   if (!claim("firestore")) return;
-  const [host, port] = readEmulatorHost("FIRESTORE_EMULATOR_HOST", 8080).split(":");
+  const [host, port] = readEmulatorHost(
+    "FIRESTORE_EMULATOR_HOST",
+    DEFAULT_EMULATOR_PORTS.firestore,
+  ).split(":");
   connectFirestoreEmulator(db, `http://${host}`, Number(port));
 }
 
@@ -47,7 +59,10 @@ export function connectFirestore(db: Firestore): void {
 export function connectStorage(storage: FirebaseStorage): void {
   if (!isBrowser || !isEmulatorRequested) return;
   if (!claim("storage")) return;
-  const [host, port] = readEmulatorHost("FIREBASE_STORAGE_EMULATOR_HOST", 9199).split(":");
+  const [host, port] = readEmulatorHost(
+    "FIREBASE_STORAGE_EMULATOR_HOST",
+    DEFAULT_EMULATOR_PORTS.storage,
+  ).split(":");
   connectStorageEmulator(storage, `http://${host}`, Number(port));
 }
 

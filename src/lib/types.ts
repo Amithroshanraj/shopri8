@@ -151,6 +151,14 @@ export interface Order {
   deliveryFee: number;
   totalAmount: number;
   deliveryAddress: Address;
+  /**
+   * Document ID of the delivery task fulfilling this order.
+   *
+   * Stored on the order rather than derived, because the security rules cannot
+   * query `deliveryTasks` by `orderId`. A worker may only advance an order whose
+   * task names them as `deliveryWorkerId`.
+   */
+  deliveryTaskId?: string | undefined;
   paymentMethod: PaymentMethod;
   paymentStatus: PaymentStatus;
   orderStatus: OrderStatus;

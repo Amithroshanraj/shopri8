@@ -46,12 +46,12 @@ export function useAuth() {
 
   const identity = useFirebase ? firebase.identity : null;
   const user: CustomerAuthUser | null = useFirebase
-    ? identity && identity.capabilities.includes(CUSTOMER)
+    ? identity && firebase.hasCapability(CUSTOMER)
       ? {
           uid: identity.uid,
           id: identity.uid,
           displayName: identity.displayName,
-          phoneNumber: identity.phone ?? "",
+          phoneNumber: identity.phoneNumber ?? "",
           ...(identity.email ? { email: identity.email } : {}),
         }
       : null
@@ -94,6 +94,7 @@ export function useAuth() {
     loading: useFirebase ? firebase.isInitialising : demo.loading,
     isAuthenticated: useFirebase ? user !== null : demo.isAuthenticated,
     provider: useFirebase ? ("firebase" as const) : ("demo" as const),
+    accountStatus: useFirebase ? (identity?.status ?? null) : null,
     capabilities: user ? [CUSTOMER] : [],
     /** Phone + OTP. Resolves once the code has been sent. */
     requestPhoneCode: firebase.signInWithPhone,

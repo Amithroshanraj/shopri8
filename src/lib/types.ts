@@ -6,7 +6,8 @@
 
 import type { ProductImageSource } from "./productImage";
 
-export type Capability = "customer" | "retailer" | "deliveryWorker" | "admin";
+export type Capability = "customer" | "retailer" | "delivery_worker" | "admin";
+export type AccountStatus = "active" | "suspended";
 
 export interface AppUser {
   id: string;

@@ -131,9 +131,40 @@ async function createDoc(token, collection, data) {
   });
 }
 
+async function createUserProfile(token, uid, data) {
+  const fields = encodeFields(data);
+  delete fields.createdAt;
+  delete fields.updatedAt;
+  return fetch(`${FS}:commit`, {
+    method: "POST",
+    headers: req(token),
+    body: JSON.stringify({
+      writes: [
+        {
+          update: {
+            name: `projects/${PROJECT}/databases/(default)/documents/users/${uid}`,
+            fields,
+          },
+          updateMask: {
+            fieldPaths: Object.keys(data).filter(
+              (key) => key !== "createdAt" && key !== "updatedAt",
+            ),
+          },
+          updateTransforms: [
+            { fieldPath: "createdAt", setToServerValue: "REQUEST_TIME" },
+            { fieldPath: "updatedAt", setToServerValue: "REQUEST_TIME" },
+          ],
+          currentDocument: { exists: false },
+        },
+      ],
+    }),
+  });
+}
+
 async function main() {
   console.log("Seeding SHOPRi8 fixtures into the Firestore emulator...\n");
 
+  const runId = Date.now();
   const customer = await makeUser("customer", {
     email: "cust@shopri8.test",
     password: "Password123!",
@@ -150,22 +181,67 @@ async function main() {
     email: "worker@shopri8.test",
     password: "Password123!",
   });
+  const legacyWorker = await makeUser("legacy-worker", {
+    email: "legacy-worker@shopri8.test",
+    password: "Password123!",
+  });
+  const suspended = await makeUser("suspended", {
+    email: "suspended@shopri8.test",
+    password: "Password123!",
+  });
+  const fresh = await makeUser("fresh-customer", {
+    email: `fresh-${runId}@shopri8.test`,
+    password: "Password123!",
+  });
+  const escalated = await makeUser("profile-escalation", {
+    email: `escalated-${runId}@shopri8.test`,
+    password: "Password123!",
+  });
   const admin = await makeUser("admin", {
     email: "admin@shopri8.test",
     password: "Password123!",
   });
 
-  await seedPlain(`users/${customer.uid}`, { name: "Cust", capabilities: ["customer"] });
-  await seedPlain(`users/${other.uid}`, { name: "Other", capabilities: ["customer"] });
+  await seedPlain(`users/${customer.uid}`, {
+    uid: customer.uid,
+    displayName: "Cust",
+    capabilities: ["customer"],
+    status: "active",
+  });
+  await seedPlain(`users/${other.uid}`, {
+    uid: other.uid,
+    displayName: "Other",
+    capabilities: ["customer"],
+    status: "active",
+  });
   await seedPlain(`users/${retailer.uid}`, {
-    name: "Green Basket",
+    uid: retailer.uid,
+    displayName: "Green Basket",
     capabilities: ["retailer"],
+    status: "active",
   });
   await seedPlain(`users/${worker.uid}`, {
-    name: "Arjun",
+    uid: worker.uid,
+    displayName: "Arjun",
+    capabilities: ["delivery_worker"],
+    status: "active",
+  });
+  await seedPlain(`users/${legacyWorker.uid}`, {
+    name: "Legacy Arjun",
     capabilities: ["deliveryWorker"],
   });
-  await seedPlain(`users/${admin.uid}`, { name: "Admin", capabilities: ["admin"] });
+  await seedPlain(`users/${suspended.uid}`, {
+    uid: suspended.uid,
+    displayName: "Suspended",
+    capabilities: ["customer"],
+    status: "suspended",
+  });
+  await seedPlain(`users/${admin.uid}`, {
+    uid: admin.uid,
+    displayName: "Admin",
+    capabilities: ["admin"],
+    status: "active",
+  });
 
   await seedPlain("shops/shop-a", {
     ownerId: retailer.uid,
@@ -272,6 +348,51 @@ async function main() {
   console.log("Running rules assertions...\n");
 
   // --- users -------------------------------------------------------------
+  const createOwnProfile = await createUserProfile(fresh.idToken, fresh.uid, {
+    uid: fresh.uid,
+    displayName: "Fresh Customer",
+    email: fresh.email,
+    capabilities: ["customer"],
+    status: "active",
+    createdAt: null,
+    updatedAt: null,
+  });
+  record(
+    "customer",
+    "create own customer profile",
+    "allow",
+    createOwnProfile.ok ? "allow" : "deny",
+  );
+  const createPrivilegedProfile = await createUserProfile(escalated.idToken, escalated.uid, {
+    uid: escalated.uid,
+    displayName: "Escalated",
+    email: escalated.email,
+    capabilities: ["customer", "admin"],
+    status: "active",
+    createdAt: null,
+    updatedAt: null,
+  });
+  record(
+    "customer",
+    "create own privileged profile",
+    "deny",
+    createPrivilegedProfile.ok ? "allow" : "deny",
+  );
+  const createMismatchedProfile = await createUserProfile(escalated.idToken, escalated.uid, {
+    uid: "another-users-uid",
+    displayName: "Mismatched",
+    email: escalated.email,
+    capabilities: ["customer"],
+    status: "active",
+    createdAt: null,
+    updatedAt: null,
+  });
+  record(
+    "customer",
+    "create profile with mismatched uid",
+    "deny",
+    createMismatchedProfile.ok ? "allow" : "deny",
+  );
   await expect("customer", "read own profile", "allow", () =>
     getDoc(customer.idToken, `users/${customer.uid}`),
   );
@@ -290,7 +411,35 @@ async function main() {
     }),
   );
   await expect("customer", "edit own name", "allow", () =>
-    patchDoc(customer.idToken, `users/${customer.uid}`, { name: "Cust Renamed" }),
+    patchDoc(customer.idToken, `users/${customer.uid}`, { displayName: "Cust Renamed" }),
+  );
+  await expect("legacy worker", "migrate legacy profile uid and status", "allow", () =>
+    patchDoc(legacyWorker.idToken, `users/${legacyWorker.uid}`, {
+      uid: legacyWorker.uid,
+      status: "active",
+    }),
+  );
+  await expect("customer", "cannot reactivate suspended profile", "deny", () =>
+    patchDoc(suspended.idToken, `users/${suspended.uid}`, { status: "active" }),
+  );
+  await expect("suspended", "read own suspended profile", "allow", () =>
+    getDoc(suspended.idToken, `users/${suspended.uid}`),
+  );
+  await expect("suspended", "read private address while suspended", "deny", () =>
+    getDoc(suspended.idToken, `addresses/addr-${customer.uid}`),
+  );
+  await expect("suspended", "create order while suspended", "deny", () =>
+    createDoc(suspended.idToken, "orders", {
+      customerId: suspended.uid,
+      shopId: "shop-a",
+      orderStatus: "PLACED",
+    }),
+  );
+  await expect("admin", "suspend active profile", "allow", () =>
+    patchDoc(admin.idToken, `users/${fresh.uid}`, { status: "suspended" }),
+  );
+  await expect("suspended", "suspended profile cannot create an address", "deny", () =>
+    createDoc(fresh.idToken, "addresses", { userId: fresh.uid, label: "Home" }),
   );
   await expect("retailer", "read a customer profile (admin only)", "deny", () =>
     getDoc(retailer.uid ? retailer.idToken : "", `users/${customer.uid}`),
@@ -298,8 +447,21 @@ async function main() {
   await expect("admin", "read any profile", "allow", () =>
     getDoc(admin.idToken, `users/${customer.uid}`),
   );
+  await expect("admin", "delete a profile through the client", "deny", () =>
+    fetch(`${FS}/users/${other.uid}`, { method: "DELETE", headers: req(admin.idToken) }),
+  );
   await expect("admin", "grant retailer capability", "allow", () =>
     patchDoc(admin.idToken, `users/${other.uid}`, { capabilities: ["customer", "retailer"] }),
+  );
+  await expect("admin", "grant worker capability", "allow", () =>
+    patchDoc(admin.idToken, `users/${other.uid}`, {
+      capabilities: ["customer", "retailer", "delivery_worker"],
+    }),
+  );
+  await expect("admin", "grant legacy worker alias", "deny", () =>
+    patchDoc(admin.idToken, `users/${other.uid}`, {
+      capabilities: ["customer", "retailer", "delivery_worker", "deliveryWorker"],
+    }),
   );
   await expect("admin", "grant admin capability", "deny", () =>
     patchDoc(admin.idToken, `users/${other.uid}`, { capabilities: ["customer", "admin"] }),
@@ -420,6 +582,9 @@ async function main() {
   // --- deliveryTasks -----------------------------------------------------
   await expect("worker", "read open board", "allow", () =>
     getDoc(worker.idToken, "deliveryTasks/task-open"),
+  );
+  await expect("legacy worker", "read open board with legacy capability", "allow", () =>
+    getDoc(legacyWorker.idToken, "deliveryTasks/task-open"),
   );
   await expect("worker", "claim an AVAILABLE task", "allow", () =>
     patchDoc(worker.idToken, "deliveryTasks/task-open", {

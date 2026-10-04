@@ -87,7 +87,7 @@ export function capabilityGates(): readonly {
 }[] {
   return [
     { capability: "retailer", path: "/retailer/dashboard", label: "Retailer" },
-    { capability: "deliveryWorker", path: "/worker/dashboard", label: "Delivery" },
+    { capability: "delivery_worker", path: "/worker/dashboard", label: "Delivery" },
     { capability: "admin", path: "/admin/dashboard", label: "Admin" },
   ] as const;
 }

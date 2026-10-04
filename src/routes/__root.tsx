@@ -150,9 +150,12 @@ function CustomerRouteGate() {
   const demo = useDemoSession("customer");
   const firebase = useFirebaseAuthSession();
   const useFirebase = firebaseIsActive();
+  const firebaseCanBrowse = firebase.hasCapability;
+  const firebaseLoading = firebase.isInitialising;
 
   const capabilities = useMemo(
-    () => (useFirebase ? (firebase.identity?.capabilities ?? []) : []),
+    () =>
+      useFirebase && firebase.identity?.status === "active" ? firebase.identity.capabilities : [],
     [firebase.identity, useFirebase],
   );
   const decision = useMemo(
@@ -162,11 +165,19 @@ function CustomerRouteGate() {
         // The demo store owns exactly one role at a time and is ignored entirely
         // once Firebase is the active backend.
         activeRole: useFirebase ? null : demo.activeRole,
-        canBrowseStorefront: useFirebase ? capabilities.includes("customer") : null,
+        canBrowseStorefront: useFirebase ? firebaseCanBrowse("customer") : null,
         capabilities,
-        loading: useFirebase ? firebase.isInitialising : demo.loading,
+        loading: useFirebase ? firebaseLoading : demo.loading,
       }),
-    [pathname, useFirebase, demo.activeRole, demo.loading, firebase.isInitialising, capabilities],
+    [
+      pathname,
+      useFirebase,
+      demo.activeRole,
+      demo.loading,
+      firebaseCanBrowse,
+      firebaseLoading,
+      capabilities,
+    ],
   );
 
   useEffect(() => {

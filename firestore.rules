@@ -5,7 +5,7 @@ rules_version = '2';
  *
  * Schema these rules assume (see src/lib/types.ts and src/lib/firebase):
  *
- *   users/{uid}         { name, phone, email, capabilities[], profileImage, ... }
+ *   users/{uid}         { uid, displayName, email, phoneNumber, photoURL, capabilities[], status, ... }
  *   shops/{shopId}      { ownerId, name, category, status, latitude, longitude, ... }
  *   categories/{id}     { name, description, icon, image, status }
  *   products/{id}       { shopId, name, price, stock, availability, category, imageSource }
@@ -29,11 +29,22 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
 
     function isSignedIn() {
+      return isActiveAccount();
+    }
+
+    function isAuthenticated() {
       return request.auth != null;
     }
 
+    function isActiveAccount() {
+      return isAuthenticated()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && (!('status' in userDoc(request.auth.uid).data)
+            || userDoc(request.auth.uid).data.status == 'active');
+    }
+
     function isUser(uid) {
-      return isSignedIn() && request.auth.uid == uid;
+      return isAuthenticated() && request.auth.uid == uid;
     }
 
     function userDoc(uid) {
@@ -47,7 +58,9 @@ service cloud.firestore {
     function hasCapability(capability) {
       return isSignedIn()
         && capabilitiesOf(request.auth.uid) is list
-        && capability in capabilitiesOf(request.auth.uid);
+        && (capability in capabilitiesOf(request.auth.uid)
+            || (capability == 'delivery_worker'
+                && 'deliveryWorker' in capabilitiesOf(request.auth.uid)));
     }
 
     function isCustomer() {
@@ -59,17 +72,62 @@ service cloud.firestore {
     }
 
     function isWorker() {
-      return hasCapability('deliveryWorker');
+      return hasCapability('delivery_worker');
     }
 
     function isAdmin() {
       return hasCapability('admin');
     }
 
-    function doesNotGrantAdmin() {
-      return !('capabilities' in request.resource.data)
-        || !('admin' in request.resource.data.capabilities)
-        || ('admin' in resource.data.capabilities);
+    function validCapabilityList(capabilities) {
+      return capabilities is list
+        && capabilities.hasOnly(['customer', 'retailer', 'delivery_worker', 'deliveryWorker', 'admin']);
+    }
+
+    function retainsLegacyWorkerCapability(newData, oldData) {
+      return !('deliveryWorker' in newData.capabilities)
+        || (oldData.capabilities is list && 'deliveryWorker' in oldData.capabilities);
+    }
+
+    function hasAdminCapability(data) {
+      return data.capabilities is list && 'admin' in data.capabilities;
+    }
+
+    function validOptionalProfileFields(data) {
+      return (!('displayName' in data) || data.displayName is string)
+        && (!('email' in data) || data.email == null || data.email is string)
+        && (!('phoneNumber' in data) || data.phoneNumber == null || data.phoneNumber is string)
+        && (!('photoURL' in data) || data.photoURL == null || data.photoURL is string);
+    }
+
+    function validSelfProfileUpdate(uid) {
+      let changes = request.resource.data.diff(resource.data).affectedKeys();
+      return isUser(uid)
+        && isActiveAccount()
+        && changes.hasOnly(['uid', 'displayName', 'email', 'phoneNumber', 'photoURL', 'status', 'updatedAt'])
+        && request.resource.data.uid == uid
+        && (!('uid' in resource.data) || resource.data.uid == uid)
+        && validOptionalProfileFields(request.resource.data)
+        && (!changes.hasAny(['email'])
+            || request.resource.data.email == request.auth.token.get('email', null))
+        && (!changes.hasAny(['phoneNumber'])
+            || request.resource.data.phoneNumber == request.auth.token.get('phone_number', null))
+        && (!changes.hasAny(['status'])
+            || (!('status' in resource.data) && request.resource.data.status == 'active'))
+        && (!changes.hasAny(['updatedAt']) || request.resource.data.updatedAt == request.time);
+    }
+
+    function validAdminProfileUpdate(uid) {
+      let changes = request.resource.data.diff(resource.data).affectedKeys();
+      return isAdmin()
+        && changes.hasOnly(['capabilities', 'status', 'displayName', 'email', 'phoneNumber', 'photoURL', 'updatedAt'])
+        && request.resource.data.uid == uid
+        && validCapabilityList(request.resource.data.capabilities)
+        && request.resource.data.status in ['active', 'suspended']
+        && hasAdminCapability(request.resource.data) == hasAdminCapability(resource.data)
+        && retainsLegacyWorkerCapability(request.resource.data, resource.data)
+        && validOptionalProfileFields(request.resource.data)
+        && (!changes.hasAny(['updatedAt']) || request.resource.data.updatedAt == request.time);
     }
 
     /** True when the signed-in retailer owns this shop document. */
@@ -112,25 +170,34 @@ service cloud.firestore {
       // personal but admins need them to manage the platform.
       allow read: if isUser(uid) || isAdmin();
 
-      /**
-       * On create a user may claim only the `customer` capability. Anything
-       * privileged must be granted later by an admin, which is why the retailer,
-       * worker and admin roles can never be self-assigned.
-       */
+      /** New client-created profiles are customers; privileged roles are provisioned separately. */
       allow create: if isUser(uid)
+        && request.resource.data.keys().hasOnly([
+             'uid', 'displayName', 'email', 'phoneNumber', 'photoURL',
+             'capabilities', 'status', 'createdAt', 'updatedAt'
+           ])
+        && request.resource.data.keys().hasAll([
+             'uid', 'displayName', 'capabilities', 'status', 'createdAt', 'updatedAt'
+           ])
+        && request.resource.data.uid == uid
+        && request.resource.data.displayName is string
         && request.resource.data.capabilities is list
-        && request.resource.data.capabilities.hasOnly(['customer']);
+        && request.resource.data.capabilities.hasOnly(['customer'])
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && (!('email' in request.resource.data)
+            || request.resource.data.email == request.auth.token.get('email', null))
+        && (!('phoneNumber' in request.resource.data)
+            || request.resource.data.phoneNumber == request.auth.token.get('phone_number', null))
+        && validOptionalProfileFields(request.resource.data);
 
       /**
-       * A user may edit their own profile but must not touch `capabilities`.
-       * Admins may edit anything, including capabilities.
+       * Users may edit only safe identity fields. Admins may provision other
+       * capabilities and status, but admin grants stay server-side.
        */
-      allow update: if (isUser(uid) && !request.resource.data.diff(resource.data).affectedKeys()
-                         .hasAny(['capabilities']))
-                    || (isAdmin() && doesNotGrantAdmin());
-
-      // Users may delete themselves; admins may delete anyone.
-      allow delete: if isUser(uid) || isAdmin();
+      allow update: if validSelfProfileUpdate(uid) || validAdminProfileUpdate(uid);
+      allow delete: if false;
     }
 
     // -----------------------------------------------------------------------

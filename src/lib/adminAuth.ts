@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useDemoSession } from "@/lib/demoAuth";
-import { getCurrentUser, setDisplayName, updateUserProfile } from "@/lib/firebase";
+import { getCurrentUser, setDisplayName } from "@/lib/firebase";
+import { userRepository } from "@/lib/repositories/userRepository";
 import {
   firebaseIsActive,
   refreshIdentity,
@@ -46,8 +47,7 @@ export function useAdminAuth() {
   const useFirebase = firebaseIsActive();
   const [error, setError] = useState<string | null>(null);
 
-  const identity =
-    useFirebase && firebase.identity?.capabilities.includes("admin") ? firebase.identity : null;
+  const identity = useFirebase && firebase.hasCapability("admin") ? firebase.identity : null;
 
   const user: AdminUser | null = useMemo(
     () =>
@@ -117,7 +117,10 @@ export function useAdminAuth() {
         demo.updateSession({ displayName: normalizedName });
         return;
       }
-      await updateUserProfile(user.id, { name: normalizedName });
+      const updated = await userRepository.updateSafeUserProfile(user.id, {
+        displayName: normalizedName,
+      });
+      if (!updated.ok) throw new Error(updated.message);
       const authUser = getCurrentUser();
       if (authUser) await setDisplayName(authUser, normalizedName);
       await refreshIdentity();

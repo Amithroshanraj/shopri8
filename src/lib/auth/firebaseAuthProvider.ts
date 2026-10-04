@@ -28,8 +28,6 @@ import type { ConfirmationResult, User } from "firebase/auth";
 import {
   clearPhoneVerification,
   confirmPhoneOtp,
-  ensureUserProfile,
-  fetchUser,
   isBrowser,
   isFirebaseConfigured,
   normalisePhoneE164,
@@ -41,10 +39,10 @@ import {
   toUserCredentialResult,
 } from "../firebase";
 import type { Capability } from "../types";
+import { userRepository } from "../repositories/userRepository";
 import { toAuthErrorMessage } from "./authErrors";
 import {
   DEFAULT_CUSTOMER_CAPABILITY,
-  SELF_ASSIGNABLE_CAPABILITIES,
   identityHasCapability,
   type AuthIdentity,
   type AuthSession,
@@ -97,15 +95,46 @@ function emit(patch: Partial<FirebaseAuthState>): void {
 }
 
 async function identityFromFirebaseUser(user: User): Promise<AuthIdentity> {
-  const profile = await fetchUser(user.uid);
+  let result = await userRepository.getUserProfile(user.uid);
+  if (!result.ok) throw new Error(result.message);
+  let profile = result.data;
+  if (!profile) {
+    const created = await userRepository.createUserProfile(user.uid, {
+      displayName: user.displayName || "",
+      ...(user.email ? { email: user.email } : {}),
+      ...(user.phoneNumber ? { phoneNumber: user.phoneNumber } : {}),
+      ...(user.photoURL ? { photoURL: user.photoURL } : {}),
+    });
+    if (!created.ok) throw new Error(created.message);
+    result = await userRepository.getUserProfile(user.uid);
+    if (!result.ok) throw new Error(result.message);
+    profile = result.data;
+  } else if (profile.status === "active") {
+    const displayName = user.displayName || profile.displayName || profile.name;
+    const email = user.email ?? profile.email;
+    const phoneNumber = user.phoneNumber ?? profile.phoneNumber ?? profile.phone;
+    const photoURL = user.photoURL ?? profile.photoURL ?? profile.profileImage;
+    const migrated = await userRepository.ensure(user.uid, {
+      ...(displayName ? { displayName } : {}),
+      ...(email ? { email } : {}),
+      ...(phoneNumber ? { phoneNumber } : {}),
+      ...(photoURL ? { photoURL } : {}),
+    });
+    if (!migrated.ok) throw new Error(migrated.message);
+    result = await userRepository.getUserProfile(user.uid);
+    if (!result.ok) throw new Error(result.message);
+    profile = result.data;
+  }
+  if (!profile) throw new Error("Your account profile could not be created.");
   return {
     uid: user.uid,
-    displayName: profile?.name || user.displayName || "",
-    email: user.email ?? profile?.email ?? null,
-    phone: user.phoneNumber ?? profile?.phone ?? null,
-    photoURL: profile?.profileImage ?? user.photoURL ?? null,
-    // A profile that has not been created yet has no granted roles.
-    capabilities: profile?.capabilities ?? [],
+    displayName: profile.displayName || user.displayName || "",
+    email: user.email ?? profile.email,
+    phoneNumber: user.phoneNumber ?? profile.phoneNumber,
+    phone: user.phoneNumber ?? profile.phoneNumber,
+    photoURL: user.photoURL ?? profile.photoURL,
+    capabilities: profile.capabilities,
+    status: profile.status,
     provider: "firebase",
   };
 }
@@ -214,11 +243,13 @@ export async function verifyPhoneCode(code: string): Promise<void> {
   try {
     const credential = await confirmPhoneOtp(pending.confirmation, code);
     const result = toUserCredentialResult(credential);
-    await ensureUserProfile(result.uid, {
-      ...(result.phoneNumber ? { phone: result.phoneNumber } : {}),
-      ...(result.displayName ? { name: result.displayName } : {}),
-      capabilities: [DEFAULT_CUSTOMER_CAPABILITY],
+    const ensured = await userRepository.ensure(result.uid, {
+      ...(result.email ? { email: result.email } : {}),
+      ...(result.phoneNumber ? { phoneNumber: result.phoneNumber } : {}),
+      ...(result.displayName ? { displayName: result.displayName } : {}),
     });
+    if (!ensured.ok) throw new Error(ensured.message);
+    await credential.user.getIdToken(true);
     emit({ pendingPhone: null });
     await refreshIdentity();
   } catch (cause: unknown) {
@@ -251,21 +282,18 @@ export async function signInWithPassword(email: string, password: string): Promi
 export async function registerWithPassword(
   email: string,
   password: string,
-  options?: { capability?: Capability; displayName?: string },
+  options?: { capability?: typeof DEFAULT_CUSTOMER_CAPABILITY; displayName?: string },
 ): Promise<void> {
   emit({ error: null });
   try {
     const credential = await registerWithEmail(email, password);
     const result = toUserCredentialResult(credential);
-    const requested = options?.capability ? [options.capability] : [];
-    const capabilities = requested.filter((capability) =>
-      SELF_ASSIGNABLE_CAPABILITIES.includes(capability),
-    );
-    await ensureUserProfile(result.uid, {
+    const ensured = await userRepository.ensure(result.uid, {
       email: result.email ?? email,
-      ...(options?.displayName ? { name: options.displayName } : {}),
-      capabilities,
+      ...(options?.displayName ? { displayName: options.displayName } : {}),
     });
+    if (!ensured.ok) throw new Error(ensured.message);
+    await credential.user.getIdToken(true);
     await refreshIdentity();
   } catch (cause: unknown) {
     throwReadable(cause, "Could not create that account.");
@@ -326,7 +354,10 @@ export function useFirebaseAuthSession(): FirebaseAuthSession {
     status: current.status,
     identity: current.identity,
     error: current.error,
-    isAuthenticated: current.status === "signed-in" && current.identity !== null,
+    isAuthenticated:
+      current.status === "signed-in" &&
+      current.identity !== null &&
+      current.identity.status === "active",
     isInitialising: current.status === "initialising",
     hasCapability,
     capabilitiesIn,

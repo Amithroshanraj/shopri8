@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { DEMO_WORKER_ID } from "@/data/worker";
 import { useDemoSession } from "@/lib/demoAuth";
-import { getCurrentUser, setDisplayName, updateUserProfile } from "@/lib/firebase";
+import { getCurrentUser, setDisplayName } from "@/lib/firebase";
+import { userRepository } from "@/lib/repositories/userRepository";
 import {
   firebaseIsActive,
   signInForPortal,
@@ -80,9 +81,7 @@ export function useWorkerAuth() {
   );
 
   const identity =
-    useFirebase && firebase.identity?.capabilities.includes("deliveryWorker")
-      ? firebase.identity
-      : null;
+    useFirebase && firebase.hasCapability("delivery_worker") ? firebase.identity : null;
   const uid = identity?.uid ?? null;
   const preferences = uid ? readWorkerPreferences(uid) : null;
 
@@ -129,7 +128,7 @@ export function useWorkerAuth() {
     setError(null);
     if (useFirebase) {
       try {
-        await signInForPortal("deliveryWorker", email, password);
+        await signInForPortal("delivery_worker", email, password);
       } catch (cause: unknown) {
         const message = toAuthErrorMessage(cause);
         setError(message);
@@ -187,7 +186,8 @@ export function useWorkerAuth() {
         return;
       }
 
-      await updateUserProfile(user.workerId, { name: displayName });
+      const updated = await userRepository.updateSafeUserProfile(user.workerId, { displayName });
+      if (!updated.ok) throw new Error(updated.message);
       const authUser = getCurrentUser();
       if (authUser) await setDisplayName(authUser, displayName);
       writeWorkerPreferences(user.workerId, { deliveryModes: updates.deliveryModes });

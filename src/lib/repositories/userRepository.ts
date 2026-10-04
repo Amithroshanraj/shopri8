@@ -8,16 +8,18 @@
 
 import {
   addUserCapability,
+  createUserProfile,
   ensureUserProfile,
   fetchUser,
   fetchUsersByCapability,
   isFirebaseActive,
   removeUserCapability,
+  setUserAccountStatus,
   updateUserProfile,
   type UserProfile,
 } from "../firebase";
-import type { AppUser, Capability } from "../types";
-import { runRepository, runWhenActive, type RepositoryResult } from "./types";
+import type { AccountStatus, Capability } from "../types";
+import { runWhenActive, type RepositoryResult } from "./types";
 
 export const userRepository = {
   /**
@@ -31,6 +33,26 @@ export const userRepository = {
     return runWhenActive(isFirebaseActive, () => fetchUser(uid), "Could not load your profile.");
   },
 
+  getUserProfile(uid: string) {
+    return userRepository.get(uid);
+  },
+
+  async createUserProfile(
+    uid: string,
+    profile: {
+      displayName: string;
+      email?: string | null;
+      phoneNumber?: string | null;
+      photoURL?: string | null;
+    },
+  ): Promise<RepositoryResult<void>> {
+    return runWhenActive(
+      isFirebaseActive,
+      () => createUserProfile(uid, profile),
+      "Could not create your profile.",
+    );
+  },
+
   /**
    * Creates the profile if missing, otherwise patches it.
    *
@@ -40,11 +62,13 @@ export const userRepository = {
   async ensure(
     uid: string,
     profile: {
+      displayName?: string;
+      email?: string | null;
+      phoneNumber?: string | null;
+      photoURL?: string | null;
       name?: string;
-      email?: string;
-      phone?: string;
-      profileImage?: string;
-      capabilities?: Capability[];
+      phone?: string | null;
+      profileImage?: string | null;
     },
   ): Promise<RepositoryResult<void>> {
     return runWhenActive(
@@ -56,12 +80,75 @@ export const userRepository = {
 
   async update(
     uid: string,
-    patch: Partial<Omit<AppUser, "id" | "capabilities">>,
+    patch: Parameters<typeof updateUserProfile>[1],
   ): Promise<RepositoryResult<void>> {
     return runWhenActive(
       isFirebaseActive,
       () => updateUserProfile(uid, patch),
       "Could not update your profile.",
+    );
+  },
+
+  updateSafeUserProfile(uid: string, patch: Parameters<typeof updateUserProfile>[1]) {
+    return userRepository.update(uid, patch);
+  },
+
+  async getCapabilities(uid: string): Promise<RepositoryResult<Capability[]>> {
+    const result = await userRepository.get(uid);
+    if (!result.ok) return result;
+    return { ok: true, data: result.data?.capabilities ?? [] };
+  },
+
+  async hasCapability(uid: string, capability: Capability): Promise<RepositoryResult<boolean>> {
+    const result = await userRepository.get(uid);
+    if (!result.ok) return result;
+    return {
+      ok: true,
+      data: result.data?.status === "active" && result.data.capabilities.includes(capability),
+    };
+  },
+
+  async hasAnyCapability(
+    uid: string,
+    capabilities: readonly Capability[],
+  ): Promise<RepositoryResult<boolean>> {
+    const result = await userRepository.get(uid);
+    if (!result.ok) return result;
+    const profile = result.data;
+    return {
+      ok: true,
+      data:
+        profile?.status === "active" &&
+        capabilities.some((capability) => profile.capabilities.includes(capability)),
+    };
+  },
+
+  async hasAllCapabilities(
+    uid: string,
+    capabilities: readonly Capability[],
+  ): Promise<RepositoryResult<boolean>> {
+    const result = await userRepository.get(uid);
+    if (!result.ok) return result;
+    const profile = result.data;
+    return {
+      ok: true,
+      data:
+        profile?.status === "active" &&
+        capabilities.every((capability) => profile.capabilities.includes(capability)),
+    };
+  },
+
+  async getAccountStatus(uid: string): Promise<RepositoryResult<AccountStatus | null>> {
+    const result = await userRepository.get(uid);
+    if (!result.ok) return result;
+    return { ok: true, data: result.data?.status ?? null };
+  },
+
+  async setAccountStatus(uid: string, status: AccountStatus): Promise<RepositoryResult<void>> {
+    return runWhenActive(
+      isFirebaseActive,
+      () => setUserAccountStatus(uid, status),
+      "Could not update account status.",
     );
   },
 
@@ -95,11 +182,15 @@ export const userRepository = {
     uid: string,
     capabilities: readonly Capability[],
   ): Promise<RepositoryResult<void>> {
-    return runRepository(async () => {
-      for (const capability of capabilities) {
-        await addUserCapability(uid, capability);
-      }
-    }, "Could not grant those capabilities.");
+    return runWhenActive(
+      isFirebaseActive,
+      async () => {
+        for (const capability of capabilities) {
+          await addUserCapability(uid, capability);
+        }
+      },
+      "Could not grant those capabilities.",
+    );
   },
 };
 

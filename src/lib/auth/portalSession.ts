@@ -16,25 +16,29 @@
  */
 
 import { useCallback, useMemo } from "react";
-import {
-  fetchUser,
-  isFirebaseActive,
-  signInWithEmail,
-  signOut as firebaseSignOut,
-} from "../firebase";
+import { isFirebaseActive, signInWithEmail, signOut as firebaseSignOut } from "../firebase";
+import { userRepository } from "../repositories/userRepository";
 import type { DemoRole } from "../demoAuth";
 import type { Capability } from "../types";
+import { identityHasCapability } from "./types";
 import { toAuthErrorMessage } from "./authErrors";
 import { useDemoAuthSession } from "./demoAuthProvider";
 import { refreshIdentity, useFirebaseAuthSession } from "./firebaseAuthProvider";
 import type { AuthIdentity } from "./types";
 
-/** Portal roles, which are a subset of the capability union. */
-export type PortalCapability = Extract<Capability, DemoRole>;
+/** Capabilities used to protect application portals. */
+export type PortalCapability = Capability;
+
+const PORTAL_DEMO_ROLE: Record<PortalCapability, DemoRole> = {
+  customer: "customer",
+  retailer: "retailer",
+  delivery_worker: "deliveryWorker",
+  admin: "admin",
+};
 
 export const PORTAL_ROLE_LABEL: Record<PortalCapability, string> = {
   retailer: "retailer",
-  deliveryWorker: "delivery worker",
+  delivery_worker: "delivery worker",
   admin: "administrator",
   customer: "customer",
 };
@@ -69,8 +73,13 @@ export async function signInForPortal(
 ): Promise<void> {
   const credential = await signInWithEmail(email, password);
   try {
-    const profile = await fetchUser(credential.user.uid);
-    if (!profile?.capabilities.includes(capability)) {
+    const loaded = await userRepository.getUserProfile(credential.user.uid);
+    if (!loaded.ok) throw new Error(loaded.message);
+    const profile = loaded.data;
+    if (profile?.status !== "active") {
+      throw new SuspendedAccountError();
+    }
+    if (!profile.capabilities.includes(capability)) {
       throw new MissingCapabilityError(capability);
     }
     await refreshIdentity();
@@ -84,7 +93,15 @@ export async function signInForPortal(
       );
     }
     if (cause instanceof MissingCapabilityError) throw cause;
+    if (cause instanceof SuspendedAccountError) throw cause;
     throw new Error(toAuthErrorMessage(cause));
+  }
+}
+
+export class SuspendedAccountError extends Error {
+  constructor() {
+    super("This account is suspended. Contact SHOPRi8 support for assistance.");
+    this.name = "SuspendedAccountError";
   }
 }
 
@@ -112,18 +129,18 @@ export interface PortalAccount {
  * can never disagree about who is signed in.
  */
 export function usePortalAccount(capability: PortalCapability): PortalAccount {
-  const demo = useDemoAuthSession(capability);
+  const demo = useDemoAuthSession(PORTAL_DEMO_ROLE[capability]);
   const firebase = useFirebaseAuthSession();
   const active = firebaseIsActive() ? firebase : demo;
 
   return useMemo<PortalAccount>(() => {
     const identity = active.identity;
-    const granted = identity?.capabilities.includes(capability) ?? false;
+    const granted = identityHasCapability(identity, capability);
     return {
       provider: active.provider,
       identity,
       capabilities: identity?.capabilities ?? [],
-      isSignedIn: active.isAuthenticated,
+      isSignedIn: active.status === "signed-in",
       isAuthenticated: active.isAuthenticated && granted,
       loading: active.isInitialising,
     };
@@ -135,8 +152,9 @@ export function usePortalAccount(capability: PortalCapability): PortalAccount {
  * customer, so the customer gate can send it somewhere useful.
  */
 export function firstPortalCapability(capabilities: readonly Capability[]): DemoRole | null {
-  const order: Capability[] = ["retailer", "deliveryWorker", "admin"];
-  return order.find((capability) => capabilities.includes(capability)) ?? null;
+  const order: Capability[] = ["retailer", "delivery_worker", "admin"];
+  const capability = order.find((item) => capabilities.includes(item));
+  return capability ? PORTAL_DEMO_ROLE[capability] : null;
 }
 
 /** Sign-out handler that works on both backends. */

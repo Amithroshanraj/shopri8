@@ -24,15 +24,10 @@
 
 import { useCallback, useState } from "react";
 import type { ConfirmationResult } from "firebase/auth";
-import {
-  getCurrentUser,
-  linkEmailToUser,
-  linkPhoneToUser,
-  startPhoneLink,
-  updateUserProfile,
-} from "../firebase";
+import { getCurrentUser, linkEmailToUser, linkPhoneToUser, startPhoneLink } from "../firebase";
 import { toAuthErrorMessage } from "./authErrors";
 import { refreshIdentity, useFirebaseAuthSession } from "./firebaseAuthProvider";
+import { userRepository } from "../repositories/userRepository";
 
 export type LinkResult =
   | { status: "linked"; message: string }
@@ -67,8 +62,12 @@ export async function linkEmailToAccount(email: string, password: string): Promi
     if (user.email && user.email.toLowerCase() === email.trim().toLowerCase()) {
       return { status: "already-linked", message: "That email is already on your account." };
     }
-    await linkEmailToUser(user, email, password);
-    await updateUserProfile(user.uid, { email: email.trim() });
+    const linked = await linkEmailToUser(user, email, password);
+    await linked.user.getIdToken(true);
+    const updated = await userRepository.updateSafeUserProfile(user.uid, {
+      email: linked.user.email ?? email.trim(),
+    });
+    if (!updated.ok) throw new Error(updated.message);
     await refreshIdentity();
     return {
       status: "linked",
@@ -108,8 +107,12 @@ export async function linkPhoneToAccount(
   try {
     const user = requireSignedInUser();
     const credential = await linkPhoneToUser(user, confirmation, code);
+    await credential.user.getIdToken(true);
     const phoneNumber = credential.user.phoneNumber;
-    if (phoneNumber) await updateUserProfile(user.uid, { phone: phoneNumber });
+    if (phoneNumber) {
+      const updated = await userRepository.updateSafeUserProfile(user.uid, { phoneNumber });
+      if (!updated.ok) throw new Error(updated.message);
+    }
     await refreshIdentity();
     return { status: "linked", message: "Phone number added to your account." };
   } catch (cause: unknown) {

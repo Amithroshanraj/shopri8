@@ -15,14 +15,23 @@ import { useDemoSession, type DemoAuthSession, type DemoRole } from "../demoAuth
 import type { Capability } from "../types";
 import { errorMessage, identityHasCapability, type AuthIdentity, type AuthSession } from "./types";
 
+const DEMO_CAPABILITY = {
+  customer: "customer",
+  retailer: "retailer",
+  deliveryWorker: "delivery_worker",
+  admin: "admin",
+} as const;
+
 function identityFromDemoSession(session: DemoAuthSession): AuthIdentity {
   return {
     uid: session.userId,
     displayName: session.displayName,
     email: session.email ?? null,
+    phoneNumber: session.phone ?? null,
     phone: session.phone ?? null,
     photoURL: null,
-    capabilities: [session.role as Capability],
+    capabilities: [DEMO_CAPABILITY[session.role]],
+    status: "active",
     provider: "demo",
   };
 }

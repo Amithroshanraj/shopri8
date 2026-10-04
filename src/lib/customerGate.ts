@@ -13,11 +13,13 @@ export const ROLE_LANDING: Record<DemoRole, string> = {
 const ROLE_PORTAL_PREFIXES = ["/retailer", "/worker", "/admin"] as const;
 
 /** Order a multi-capability account is considered in when it is not a customer. */
-const PORTAL_FALLBACK_ORDER: readonly Capability[] = ["retailer", "deliveryWorker", "admin"];
+const PORTAL_FALLBACK_ORDER: readonly Capability[] = ["retailer", "delivery_worker", "admin"];
 
 /** The portal a signed-in, non-customer account belongs to, or `null`. */
 export function portalLandingRole(capabilities: readonly Capability[]): DemoRole | null {
-  return PORTAL_FALLBACK_ORDER.find((capability) => capabilities.includes(capability)) ?? null;
+  const capability = PORTAL_FALLBACK_ORDER.find((item) => capabilities.includes(item));
+  if (capability === "delivery_worker") return "deliveryWorker";
+  return capability ?? null;
 }
 
 export function isRolePortalPath(pathname: string) {

@@ -49,6 +49,8 @@ function Auth() {
   const {
     cancelPhoneCode,
     confirmPhoneCode,
+    accountStatus,
+    logout,
     provider,
     registerWithPassword,
     requestPhoneCode,
@@ -218,6 +220,24 @@ function Auth() {
         <div className="mb-7 flex justify-center">
           <Wordmark showTagline className="items-center" />
         </div>
+        {accountStatus === "suspended" ? (
+          <div
+            role="alert"
+            className="mb-5 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm"
+          >
+            <p className="font-semibold text-destructive">This account is suspended.</p>
+            <p className="mt-1 text-muted-foreground">
+              Contact SHOPRi8 support for assistance, or sign out of this account.
+            </p>
+            <button
+              type="button"
+              onClick={() => void logout()}
+              className="mt-3 text-xs font-semibold text-soft-violet hover:underline"
+            >
+              Sign out
+            </button>
+          </div>
+        ) : null}
         {/* reCAPTCHA mount point for the phone flow. Present but zero-sized. */}
         <div
           id={RECAPTCHA_CONTAINER_ID}

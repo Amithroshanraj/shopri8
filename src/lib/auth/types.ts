@@ -15,7 +15,7 @@
  * sign-in never decides the role — `users/{uid}.capabilities` does.
  */
 
-import type { Capability } from "../types";
+import type { AccountStatus, Capability } from "../types";
 
 /** Which backend produced a session. Useful for diagnostics and setup screens. */
 export type AuthProviderId = "demo" | "firebase";
@@ -32,9 +32,12 @@ export interface AuthIdentity {
   uid: string;
   displayName: string;
   email: string | null;
+  phoneNumber: string | null;
+  /** Compatibility alias for portal UI models that still use `phone`. */
   phone: string | null;
   photoURL: string | null;
   capabilities: Capability[];
+  status: AccountStatus;
   /** Backend that produced this identity. */
   provider: AuthProviderId;
 }
@@ -65,7 +68,22 @@ export function identityHasCapability(
   identity: AuthIdentity | null,
   capability: Capability,
 ): boolean {
-  return identity?.capabilities.includes(capability) ?? false;
+  return identity?.status === "active" && identity.capabilities.includes(capability);
+}
+
+export function canonicalCapability(value: unknown): Capability | null {
+  if (value === "deliveryWorker") return "delivery_worker";
+  return value === "customer" ||
+    value === "retailer" ||
+    value === "delivery_worker" ||
+    value === "admin"
+    ? value
+    : null;
+}
+
+export function canonicalCapabilities(values: unknown): Capability[] {
+  if (!Array.isArray(values)) return [];
+  return [...new Set(values.map(canonicalCapability).filter((item): item is Capability => !!item))];
 }
 
 export function errorMessage(error: unknown, fallback: string): string {

@@ -42,10 +42,12 @@ import {
   writeBatch,
   type DocumentData,
   type QueryConstraint,
+  type Timestamp,
 } from "firebase/firestore";
 import { getDb } from "./config";
 import type {
   Address,
+  AccountStatus,
   AppUser,
   Capability,
   Category,
@@ -56,6 +58,7 @@ import type {
   Product,
   Shop,
 } from "../types";
+import { canonicalCapabilities } from "../auth/types";
 
 export const COLLECTIONS = {
   users: "users",
@@ -109,9 +112,20 @@ export function refPath(...segments: string[]): string {
 // users/{uid}
 // ---------------------------------------------------------------------------
 
-export interface UserProfile extends AppUser {
+export interface UserProfile {
+  uid: string;
   id: string;
+  displayName: string;
+  email: string | null;
+  phoneNumber: string | null;
+  photoURL: string | null;
+  status: AccountStatus;
   capabilities: Capability[];
+  createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+  name: string;
+  phone: string | null;
+  profileImage: string | null;
 }
 
 export function usersCollection() {
@@ -125,14 +139,60 @@ export function userDoc(uid: string) {
 /** Reads `users/{uid}`. Returns `null` when the profile has not been created. */
 export async function fetchUser(uid: string): Promise<UserProfile | null> {
   const snapshot = await getDoc(userDoc(uid));
-  return snapshot.exists() ? mapDoc<UserProfile>(snapshot) : null;
+  if (!snapshot.exists()) return null;
+  const raw = snapshot.data();
+  const displayName =
+    typeof raw["displayName"] === "string"
+      ? raw["displayName"]
+      : typeof raw["name"] === "string"
+        ? raw["name"]
+        : "";
+  const email = typeof raw["email"] === "string" ? raw["email"] : null;
+  const phoneNumber =
+    typeof raw["phoneNumber"] === "string"
+      ? raw["phoneNumber"]
+      : typeof raw["phone"] === "string"
+        ? raw["phone"]
+        : null;
+  const photoURL =
+    typeof raw["photoURL"] === "string"
+      ? raw["photoURL"]
+      : typeof raw["profileImage"] === "string"
+        ? raw["profileImage"]
+        : null;
+  return {
+    uid,
+    id: uid,
+    displayName,
+    name: displayName,
+    email,
+    phoneNumber,
+    phone: phoneNumber,
+    photoURL,
+    profileImage: photoURL,
+    status: raw["status"] === undefined || raw["status"] === "active" ? "active" : "suspended",
+    capabilities: canonicalCapabilities(raw["capabilities"]),
+    createdAt: (raw["createdAt"] as Timestamp | undefined) ?? null,
+    updatedAt: (raw["updatedAt"] as Timestamp | undefined) ?? null,
+  };
 }
 
 export async function fetchUsersByCapability(capability: Capability): Promise<UserProfile[]> {
-  const snapshot = await getDocs(
-    query(usersCollection(), where("capabilities", "array-contains", capability)),
+  const storedCapabilities: string[] =
+    capability === "delivery_worker" ? [capability, "deliveryWorker"] : [capability];
+  const snapshots = await Promise.all(
+    storedCapabilities.map((storedCapability) =>
+      getDocs(query(usersCollection(), where("capabilities", "array-contains", storedCapability))),
+    ),
   );
-  return snapshot.docs.map((entry) => mapDoc<UserProfile>(entry));
+  const profiles = new Map<string, UserProfile>();
+  for (const snapshot of snapshots) {
+    for (const entry of snapshot.docs) {
+      const profile = await fetchUser(entry.id);
+      if (profile) profiles.set(profile.uid, profile);
+    }
+  }
+  return [...profiles.values()];
 }
 
 /**
@@ -144,35 +204,91 @@ export async function fetchUsersByCapability(capability: Capability): Promise<Us
 export async function ensureUserProfile(
   uid: string,
   profile: {
+    displayName?: string;
+    phoneNumber?: string | null;
+    photoURL?: string | null;
     name?: string;
-    email?: string;
-    phone?: string;
-    profileImage?: string;
-    capabilities?: Capability[];
+    email?: string | null;
+    phone?: string | null;
+    profileImage?: string | null;
   },
 ): Promise<void> {
-  const body = stripUndefined({
-    ...profile,
-    updatedAt: serverTimestamp(),
-  });
+  if (!uid.trim()) throw new Error("A Firebase Auth UID is required to create a user profile.");
+  const displayName = profile.displayName ?? profile.name;
+  const phoneNumber = profile.phoneNumber ?? profile.phone;
+  const photoURL = profile.photoURL ?? profile.profileImage;
   const ref = userDoc(uid);
   await runTransaction(requireDb(), async (transaction) => {
     const snapshot = await transaction.get(ref);
     if (snapshot.exists()) {
-      const updates = { ...body };
-      delete updates.capabilities;
-      transaction.set(ref, updates, { merge: true });
+      const existing = snapshot.data();
+      if (existing["uid"] !== undefined && existing["uid"] !== uid) {
+        throw new Error("The stored profile UID does not match its Firebase Auth UID.");
+      }
+      const patch = stripUndefined({
+        ...(existing["uid"] === undefined ? { uid } : {}),
+        ...(existing["status"] === undefined ? { status: "active" } : {}),
+        ...(existing["displayName"] === undefined && displayName !== undefined
+          ? { displayName }
+          : {}),
+        ...(existing["email"] === undefined && profile.email !== undefined
+          ? { email: profile.email }
+          : {}),
+        ...(existing["phoneNumber"] === undefined && phoneNumber !== undefined
+          ? { phoneNumber }
+          : {}),
+        ...(existing["photoURL"] === undefined && photoURL !== undefined ? { photoURL } : {}),
+      });
+      if (Object.keys(patch).length) {
+        transaction.set(ref, { ...patch, updatedAt: serverTimestamp() }, { merge: true });
+      }
       return;
     }
-    transaction.set(ref, { createdAt: serverTimestamp(), ...body }, { merge: true });
+    transaction.set(ref, {
+      uid,
+      displayName: displayName ?? "",
+      ...(profile.email ? { email: profile.email } : {}),
+      ...(phoneNumber ? { phoneNumber } : {}),
+      ...(photoURL !== undefined ? { photoURL } : {}),
+      capabilities: ["customer"],
+      status: "active",
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
   });
 }
 
-export async function updateUserProfile(
+export async function createUserProfile(
   uid: string,
-  patch: Partial<Omit<UserProfile, "id" | "capabilities">>,
+  profile: {
+    displayName: string;
+    email?: string | null;
+    phoneNumber?: string | null;
+    photoURL?: string | null;
+  },
 ): Promise<void> {
-  await updateDoc(userDoc(uid), stripUndefined({ ...patch, updatedAt: serverTimestamp() }));
+  await ensureUserProfile(uid, profile);
+}
+
+export type SafeUserProfilePatch = Partial<
+  Pick<UserProfile, "displayName" | "email" | "phoneNumber" | "photoURL">
+> &
+  Partial<Pick<AppUser, "name" | "phone" | "profileImage">>;
+
+export async function updateUserProfile(uid: string, patch: SafeUserProfilePatch): Promise<void> {
+  const displayName = patch.displayName ?? patch.name;
+  const phoneNumber = patch.phoneNumber ?? patch.phone;
+  const photoURL = patch.photoURL ?? patch.profileImage;
+  await updateDoc(
+    userDoc(uid),
+    stripUndefined({
+      ...(displayName !== undefined ? { displayName } : {}),
+      ...(patch.email !== undefined ? { email: patch.email } : {}),
+      ...(phoneNumber !== undefined ? { phoneNumber } : {}),
+      ...(photoURL !== undefined ? { photoURL } : {}),
+      updatedAt: serverTimestamp(),
+    }),
+  );
 }
 
 /**
@@ -183,6 +299,8 @@ export async function addUserCapability(uid: string, capability: Capability): Pr
   if (capability === "admin") {
     throw new Error("Admin capability must be granted through trusted server-side provisioning.");
   }
+  if (!(await fetchUser(uid)))
+    throw new Error("Create the user profile before granting a capability.");
   await updateDoc(userDoc(uid), {
     capabilities: arrayUnion(capability),
     updatedAt: serverTimestamp(),
@@ -191,10 +309,26 @@ export async function addUserCapability(uid: string, capability: Capability): Pr
 
 /** Revokes a capability. */
 export async function removeUserCapability(uid: string, capability: Capability): Promise<void> {
-  await updateDoc(userDoc(uid), {
-    capabilities: arrayRemove(capability),
-    updatedAt: serverTimestamp(),
+  if (capability === "admin") {
+    throw new Error("Admin capability must be managed through trusted server-side provisioning.");
+  }
+  const values = capability === "delivery_worker" ? [capability, "deliveryWorker"] : [capability];
+  const ref = userDoc(uid);
+  await runTransaction(requireDb(), async (transaction) => {
+    const snapshot = await transaction.get(ref);
+    if (!snapshot.exists()) throw new Error("The user profile does not exist.");
+    transaction.update(ref, {
+      capabilities: arrayRemove(...values),
+      updatedAt: serverTimestamp(),
+    });
   });
+}
+
+export async function setUserAccountStatus(uid: string, status: AccountStatus): Promise<void> {
+  if (status !== "active" && status !== "suspended") {
+    throw new Error("Account status must be active or suspended.");
+  }
+  await updateDoc(userDoc(uid), { status, updatedAt: serverTimestamp() });
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
 import type { Capability } from "./types";
 import { useDemoSession } from "./demoAuth";
-import { getCurrentUser, setDisplayName, updateUserProfile } from "./firebase";
+import { getCurrentUser, setDisplayName } from "./firebase";
+import { userRepository } from "./repositories/userRepository";
 import {
   firebaseIsActive,
   refreshIdentity,
@@ -167,7 +168,10 @@ export function useRetailerAuth() {
         demo.updateSession({ displayName: normalizedName });
         return;
       }
-      await updateUserProfile(user.uid, { name: normalizedName });
+      const updated = await userRepository.updateSafeUserProfile(user.uid, {
+        displayName: normalizedName,
+      });
+      if (!updated.ok) throw new Error(updated.message);
       const authUser = getCurrentUser();
       if (authUser) await setDisplayName(authUser, normalizedName);
       await refreshIdentity();

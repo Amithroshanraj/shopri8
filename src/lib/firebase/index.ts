@@ -54,6 +54,7 @@ export {
   createDeliveryTask,
   createOrder,
   createPayment,
+  createUserProfile,
   ensureUserProfile,
   fetchAddress,
   fetchAddresses,
@@ -80,6 +81,7 @@ export {
   saveCategory,
   saveProduct,
   saveShop,
+  setUserAccountStatus,
   stripUndefined,
   transitionOrder,
   updateAddress,
@@ -91,6 +93,7 @@ export {
   updateUserProfile,
   type CollectionName,
   type UserProfile,
+  type SafeUserProfilePatch,
 } from "./firestore";
 
 export {

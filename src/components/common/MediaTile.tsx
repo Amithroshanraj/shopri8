@@ -1,26 +1,34 @@
 import { CategoryIcon } from "./CategoryIcon";
+import { useProductImage } from "@/components/product/useProductImage";
+import type { ProductImageSource } from "@/lib/productImage";
 import type { CategoryId } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /**
  * Image surface for shops and products.
  *
- * Shows the local asset / external URL stored in Firestore when present,
- * otherwise a branded gradient tile. No Firebase Storage is used.
+ * Resolves retailer uploads first, then the shared SHOPRi8 catalogue, then the
+ * pre-existing `src` field, and finally falls back to a branded gradient tile —
+ * so no image ever renders as a broken icon. Shops keep using `src` directly;
+ * products may pass an `imageSource`.
  */
 export function MediaTile({
   src,
+  imageSource,
   alt,
   category,
   className,
   iconClassName,
 }: {
   src?: string | undefined;
+  imageSource?: ProductImageSource | undefined;
   alt: string;
   category: CategoryId;
   className?: string;
   iconClassName?: string;
 }) {
+  const resolved = useProductImage({ image: src, imageSource });
+
   return (
     <div
       className={cn(
@@ -28,8 +36,8 @@ export function MediaTile({
         className,
       )}
     >
-      {src ? (
-        <img src={src} alt={alt} loading="lazy" className="h-full w-full object-cover" />
+      {resolved.src ? (
+        <img src={resolved.src} alt={alt} loading="lazy" className="h-full w-full object-cover" />
       ) : (
         <CategoryIcon id={category} className={cn("h-8 w-8 text-soft-violet", iconClassName)} />
       )}

@@ -4,6 +4,8 @@
  * products, addresses, orders, payments, deliveryTasks.
  */
 
+import type { ProductImageSource } from "./productImage";
+
 export type Capability = "customer" | "retailer" | "deliveryWorker" | "admin";
 
 export interface AppUser {
@@ -65,7 +67,13 @@ export interface Product {
   name: string;
   description: string;
   price: number;
+  /** Legacy image field, still honoured for products saved before imageSource. */
   image?: string | undefined;
+  /**
+   * Typed image ownership: a shared SHOPRi8 catalogue image or a retailer-specific
+   * upload. Takes priority over `image` when present.
+   */
+  imageSource?: ProductImageSource | undefined;
   stock: number;
   availability: boolean;
   category: CategoryId;

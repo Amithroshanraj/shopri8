@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { Capability } from "./types";
-import { getRetailerFirebaseAuth, isFirebaseConfigured } from "./firebase/config";
+import { useDemoSession } from "./demoAuth";
 
 export interface RetailerCredentials {
   email: string;
@@ -26,7 +26,6 @@ export interface RetailerAuthState {
   isRetailer: boolean;
 }
 
-const STORAGE_KEY = "shopri8.retailer.auth.v1";
 export const DEMO_RETAILER_CREDENTIALS = {
   email: "retailer@greenbasket.com",
   password: "retailer123",
@@ -43,223 +42,56 @@ export const DEFAULT_DEMO_RETAILER: RetailerUser = {
   capabilities: ["retailer"],
 };
 
-function parseStoredRetailer(raw: string | null): RetailerUser | null {
-  if (!raw) return null;
-  try {
-    const user = JSON.parse(raw) as RetailerUser;
-    const hasRetailerAccess =
-      user.capabilities?.includes("retailer") || user.capabilities?.includes("admin");
-    return hasRetailerAccess ? user : null;
-  } catch {
-    return null;
-  }
-}
-
-// Keep server and first client render identical; restore the session after mount.
-let sharedState: RetailerAuthState = {
-  user: null,
-  loading: true,
-  error: null,
-  isAuthenticated: false,
-  isRetailer: false,
-};
-const listeners = new Set<(state: RetailerAuthState) => void>();
-
-function setSharedState(nextState: Partial<RetailerAuthState>) {
-  sharedState = { ...sharedState, ...nextState };
-  listeners.forEach((listener) => listener(sharedState));
-}
-
-/**
- * Retailer authentication hook.
- * Shared across all components and persisted in localStorage for demo mode.
- * Supports Firebase email/password authentication when configured.
- */
 export function useRetailerAuth() {
-  const [state, setState] = useState<RetailerAuthState>(sharedState);
-
-  useEffect(() => {
-    const listener = (newState: RetailerAuthState) => {
-      setState(newState);
-    };
-
-    listeners.add(listener);
-    setState(sharedState);
-
-    const storedUser = parseStoredRetailer(localStorage.getItem(STORAGE_KEY));
-    setSharedState({
-      user: storedUser,
-      loading: false,
-      error: null,
-      isAuthenticated: Boolean(storedUser),
-      isRetailer: Boolean(storedUser),
-    });
-
-    // Cross-tab synchronization
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEY) {
-        const user = parseStoredRetailer(e.newValue);
-        if (user) {
-          setSharedState({
-            user,
-            isAuthenticated: true,
-            isRetailer: true,
-            loading: false,
-            error: null,
-          });
-        } else {
-          setSharedState({
-            user: null,
-            isAuthenticated: false,
-            isRetailer: false,
-            loading: false,
-            error: null,
-          });
-        }
-      }
-    };
-
-    window.addEventListener("storage", onStorage);
-    return () => {
-      listeners.delete(listener);
-      window.removeEventListener("storage", onStorage);
-    };
-  }, []);
-
-  const login = async (credentials: RetailerCredentials) => {
-    setSharedState({ loading: true, error: null });
-
-    if (!isFirebaseConfigured) {
-      if (
-        credentials.email.trim().toLowerCase() !== DEMO_RETAILER_CREDENTIALS.email ||
-        credentials.password !== DEMO_RETAILER_CREDENTIALS.password
-      ) {
-        const error = new Error("Use the Green Basket demo email and password.");
-        setSharedState({ loading: false, error: error.message });
-        throw error;
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 350));
-
-      const demoUser: RetailerUser = {
-        ...DEFAULT_DEMO_RETAILER,
-      };
-
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(demoUser));
-      } catch (e) {
-        console.error("Failed to save retailer auth to localStorage:", e);
-      }
-
-      setSharedState({
-        user: demoUser,
-        loading: false,
-        error: null,
-        isAuthenticated: true,
-        isRetailer: true,
-      });
-      return;
-    }
-
-    // Real Firebase authentication
-    try {
-      const auth = getRetailerFirebaseAuth();
-      if (!auth) throw new Error("Firebase Auth not available");
-
-      const { signInWithEmailAndPassword } = await import("firebase/auth");
-      const cred = await signInWithEmailAndPassword(auth, credentials.email, credentials.password);
-
-      const fbUser = cred.user;
-      const retailerUser: RetailerUser = {
-        uid: fbUser.uid,
-        id: fbUser.uid,
-        email: fbUser.email || credentials.email,
-        displayName: fbUser.displayName || "Retailer",
-        name: fbUser.displayName || "Retailer",
-        phoneNumber: fbUser.phoneNumber,
-        phone: fbUser.phoneNumber,
+  const { session, loading, startSession, updateSession, endSession, isAuthenticated } =
+    useDemoSession("retailer");
+  const [error, setError] = useState<string | null>(null);
+  const user: RetailerUser | null = session
+    ? {
+        uid: session.userId,
+        id: session.userId,
+        email: session.email ?? DEMO_RETAILER_CREDENTIALS.email,
+        displayName: session.displayName,
+        name: session.displayName,
+        ...(session.phone ? { phoneNumber: session.phone, phone: session.phone } : {}),
         capabilities: ["retailer"],
-      };
-
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(retailerUser));
-      } catch {
-        // ignore
       }
-
-      setSharedState({
-        user: retailerUser,
-        loading: false,
-        error: null,
-        isAuthenticated: true,
-        isRetailer: true,
-      });
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "Login failed";
-      setSharedState({
-        user: null,
-        loading: false,
-        error: msg,
-        isAuthenticated: false,
-        isRetailer: false,
-      });
-      throw error;
+    : null;
+  const login = async (credentials: RetailerCredentials) => {
+    setError(null);
+    if (
+      credentials.email.trim().toLowerCase() !== DEMO_RETAILER_CREDENTIALS.email ||
+      credentials.password !== DEMO_RETAILER_CREDENTIALS.password
+    ) {
+      const loginError = new Error("Invalid email or password.");
+      setError(loginError.message);
+      throw loginError;
     }
-  };
-
-  const logout = async () => {
-    setSharedState({ loading: true });
-
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      // ignore
-    }
-
-    if (isFirebaseConfigured) {
-      try {
-        const auth = getRetailerFirebaseAuth();
-        if (auth) {
-          const { signOut } = await import("firebase/auth");
-          await signOut(auth);
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    setSharedState({
-      user: null,
-      loading: false,
-      error: null,
-      isAuthenticated: false,
-      isRetailer: false,
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    startSession({
+      userId: DEFAULT_DEMO_RETAILER.id,
+      role: "retailer",
+      displayName: DEFAULT_DEMO_RETAILER.displayName,
+      email: DEFAULT_DEMO_RETAILER.email,
+      ...(DEFAULT_DEMO_RETAILER.phoneNumber ? { phone: DEFAULT_DEMO_RETAILER.phoneNumber } : {}),
     });
   };
+
+  const logout = () => endSession();
 
   const updateProfile = async (displayName: string) => {
     const normalizedName = displayName.trim();
-    const currentUser = sharedState.user;
+    const currentUser = user;
     if (!currentUser || !normalizedName) throw new Error("A retailer name is required.");
-
-    if (isFirebaseConfigured) {
-      const auth = getRetailerFirebaseAuth();
-      if (!auth?.currentUser) throw new Error("Retailer authentication is unavailable.");
-      const { updateProfile: updateFirebaseProfile } = await import("firebase/auth");
-      await updateFirebaseProfile(auth.currentUser, { displayName: normalizedName });
-    }
-
-    const updatedUser = { ...currentUser, displayName: normalizedName, name: normalizedName };
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedUser));
-    } catch {
-      // Keep the in-memory profile available if browser storage is unavailable.
-    }
-    setSharedState({ user: updatedUser, error: null });
+    updateSession({ displayName: normalizedName });
   };
 
   return {
-    ...state,
+    user,
+    loading,
+    error,
+    isAuthenticated,
+    isRetailer: isAuthenticated,
     login,
     logout,
     updateProfile,

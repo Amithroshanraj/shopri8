@@ -1,24 +1,48 @@
-# Pixel Perfect Replica
+# SHOPRi8 — Shop Nearby. Live Local.
 
-Implement exactly the screenshot and nothing else
+AI-powered hyperlocal commerce platform connecting Customers, Local Retailers, Delivery Workers, and Admins for ultra-fast, local commerce.
 
-This project was built with [Lovable](https://lovable.dev).
+---
 
-## Build with Lovable
+## 🚀 Key Modules & Capabilities
 
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/2c2ee121-ffd5-4e35-ae94-a8607cd03132).
+- **Customer App**: Browse nearby shops, discover local deals, search products, geolocated map view, multi-shop cart & instant checkout.
+- **Retailer Dashboard**: Real-time order fulfillment pipeline (New ➔ Accepted ➔ Preparing ➔ Ready for Pickup), inventory management, product catalog control, shop profile & operating hours.
+- **Delivery Worker App**: Dispatch coordination, pickup and drop-off tracking, route navigation.
+- **Admin Console**: Hyperlocal analytics, retailer verification, platform oversight.
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
+---
 
-## Development
+## 🛠️ Tech Stack
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+- **Framework**: React 19 + TypeScript
+- **Routing & SSR**: TanStack Start + TanStack Router
+- **Data Fetching**: TanStack Query v5
+- **Styling**: Tailwind CSS v4 + Radix UI Primitives + Lucide Icons
+- **Bundler & Server**: Vite 8 + Nitro Engine
+- **Maps**: Leaflet + React Leaflet
 
-```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
+---
+
+## 📦 Getting Started
+
+### Prerequisites
+
+- Node.js (v20+ recommended)
+- npm
+
+### Installation & Run
+
+```bash
+# Install dependencies
+npm install
+
+# Run development server (accessible at http://localhost:8080)
 npm run dev
+
+# Build for production
+npm run build
+
+# Preview production build
+npm run preview
 ```

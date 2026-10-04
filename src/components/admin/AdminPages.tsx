@@ -7,6 +7,7 @@ import {
   Check,
   ChevronRight,
   CircleHelp,
+  LogOut,
   Package,
   Search,
   Settings2,
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { DEMO_ADMIN_CREDENTIALS, useAdminAuth } from "@/lib/adminAuth";
+import { consumeDemoReturnTo } from "@/lib/demoAuth";
 import {
   useAdminData,
   type ManagedRole,
@@ -219,6 +221,7 @@ export function AdminLoginPage() {
   const navigate = useNavigate();
   const [email, setEmail] = useState<string>(DEMO_ADMIN_CREDENTIALS.email);
   const [password, setPassword] = useState<string>(DEMO_ADMIN_CREDENTIALS.password);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated) navigate({ to: "/admin/dashboard", replace: true });
@@ -226,11 +229,15 @@ export function AdminLoginPage() {
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setSubmitting(true);
     try {
+      await new Promise((resolve) => setTimeout(resolve, 200));
       await login(email, password);
-      navigate({ to: "/admin/dashboard", replace: true });
+      navigate({ to: consumeDemoReturnTo("admin", "/admin/dashboard") as never, replace: true });
     } catch {
       // The hook exposes the message for the form.
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -279,10 +286,10 @@ export function AdminLoginPage() {
             </p>
           ) : null}
           <button
-            disabled={loading}
+            disabled={loading || submitting}
             className="press w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-60"
           >
-            {loading ? "Signing in..." : "Sign in"}
+            {loading || submitting ? "Signing in..." : "Sign in"}
           </button>
         </form>
         <div className="mt-5 rounded-xl border border-warning/20 bg-warning/5 p-3 text-xs text-muted-foreground">
@@ -292,9 +299,12 @@ export function AdminLoginPage() {
           </p>
           <p className="mt-2">This client-side demo login is not production-secure.</p>
         </div>
-        <Link to="/" className="mt-5 inline-block text-xs font-semibold text-soft-violet">
-          Return to customer storefront
-        </Link>
+        <a
+          href="/auth?step=roles"
+          className="mt-5 inline-block text-xs font-semibold text-soft-violet"
+        >
+          ← Change role
+        </a>
       </section>
     </main>
   );
@@ -1400,7 +1410,8 @@ export function AdminSettingsPage() {
 }
 
 export function AdminProfilePage() {
-  const { user, updateDisplayName } = useAdminAuth();
+  const navigate = useNavigate();
+  const { user, updateDisplayName, logout } = useAdminAuth();
   const [name, setName] = useState(user?.displayName ?? "");
   const [saved, setSaved] = useState(false);
   useEffect(() => setName(user?.displayName ?? ""), [user?.displayName]);
@@ -1444,6 +1455,16 @@ export function AdminProfilePage() {
         </button>
         {saved ? <span className="ml-3 text-xs text-success">Saved locally</span> : null}
       </form>
+      <button
+        type="button"
+        onClick={() => {
+          logout();
+          window.location.assign("/");
+        }}
+        className="press mt-4 inline-flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm font-semibold text-destructive"
+      >
+        <LogOut className="h-4 w-4" /> Log out
+      </button>
     </>
   );
 }

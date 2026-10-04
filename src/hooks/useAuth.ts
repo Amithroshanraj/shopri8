@@ -1,17 +1,24 @@
-import { useEffect, useState } from "react";
-import type { User } from "firebase/auth";
-import { subscribeToAuth } from "@/lib/firebase/auth";
+import { useDemoSession } from "@/lib/demoAuth";
+
+export interface CustomerAuthUser {
+  uid: string;
+  id: string;
+  displayName: string;
+  phoneNumber: string;
+  email?: string;
+}
 
 export function useAuth() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  useEffect(
-    () =>
-      subscribeToAuth((u) => {
-        setUser(u);
-        setLoading(false);
-      }),
-    [],
-  );
-  return { user, loading };
+  const { session, loading, isAuthenticated, startSession, endSession } =
+    useDemoSession("customer");
+  const user: CustomerAuthUser | null = session
+    ? {
+        uid: session.userId,
+        id: session.userId,
+        displayName: session.displayName,
+        phoneNumber: session.phone ?? "",
+        ...(session.email ? { email: session.email } : {}),
+      }
+    : null;
+  return { user, loading, isAuthenticated, startSession, logout: endSession };
 }

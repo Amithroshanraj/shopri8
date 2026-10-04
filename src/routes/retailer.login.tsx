@@ -3,7 +3,7 @@ import { Lock, Mail, Store } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { DEMO_RETAILER_CREDENTIALS, useRetailerAuth } from "@/lib/retailerAuth";
-import { isFirebaseConfigured } from "@/lib/firebase/config";
+import { consumeDemoReturnTo } from "@/lib/demoAuth";
 import { Wordmark } from "@/components/brand/Wordmark";
 
 export const Route = createFileRoute("/retailer/login")({
@@ -48,7 +48,10 @@ function RetailerLogin() {
     try {
       await login({ email, password });
       toast.success("Welcome back!", { description: "Logged in to Retailer Portal" });
-      navigate({ to: "/retailer/dashboard", replace: true });
+      navigate({
+        to: consumeDemoReturnTo("retailer", "/retailer/dashboard") as never,
+        replace: true,
+      });
     } catch (error) {
       toast.error("Login failed", {
         description: error instanceof Error ? error.message : "Please check your credentials",
@@ -80,39 +83,39 @@ function RetailerLogin() {
           </p>
         </div>
 
-        {!isFirebaseConfigured && (
-          <div className="mb-5 rounded-2xl border border-warning/30 bg-warning/10 p-4 text-xs">
-            <div className="flex items-center justify-between">
-              <span className="font-semibold text-warning">Demo Mode Active</span>
-              <button
-                type="button"
-                onClick={handleFillDemo}
-                className="text-[0.7rem] font-medium text-warning underline hover:text-warning/80"
-              >
-                Reset Demo Info
-              </button>
-            </div>
-            <p className="mt-1 text-muted-foreground">
-              Firebase is not connected yet. Use the Green Basket demo credentials to sign in.
-            </p>
-            <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[0.7rem] text-foreground">
-              <dt className="text-muted-foreground">Email</dt>
-              <dd>{DEMO_RETAILER_CREDENTIALS.email}</dd>
-              <dt className="text-muted-foreground">Password</dt>
-              <dd>{DEMO_RETAILER_CREDENTIALS.password}</dd>
-            </dl>
+        <div className="mb-5 rounded-2xl border border-warning/30 bg-warning/10 p-4 text-xs">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-warning">Demo Mode Active</span>
+            <button
+              type="button"
+              onClick={handleFillDemo}
+              className="text-[0.7rem] font-medium text-warning underline hover:text-warning/80"
+            >
+              Reset Demo Info
+            </button>
           </div>
-        )}
+          <p className="mt-1 text-muted-foreground">Local demo authentication is active.</p>
+          <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[0.7rem] text-foreground">
+            <dt className="text-muted-foreground">Email</dt>
+            <dd>{DEMO_RETAILER_CREDENTIALS.email}</dd>
+            <dt className="text-muted-foreground">Password</dt>
+            <dd>{DEMO_RETAILER_CREDENTIALS.password}</dd>
+          </dl>
+        </div>
 
         <div className="rounded-3xl border border-border bg-card/60 p-6 backdrop-blur-md shadow-xl">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-foreground">
+              <label
+                htmlFor="retailer-email"
+                className="mb-1.5 block text-xs font-medium text-foreground"
+              >
                 Retailer Email
               </label>
               <div className="relative">
                 <Mail className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <input
+                  id="retailer-email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -124,10 +127,16 @@ function RetailerLogin() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-foreground">Password</label>
+              <label
+                htmlFor="retailer-password"
+                className="mb-1.5 block text-xs font-medium text-foreground"
+              >
+                Password
+              </label>
               <div className="relative">
                 <Lock className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <input
+                  id="retailer-password"
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -149,9 +158,12 @@ function RetailerLogin() {
         </div>
 
         <div className="mt-6 text-center">
-          <Link to="/" className="text-xs font-medium text-soft-violet hover:underline">
-            ← Back to Customer Shopping
-          </Link>
+          <a
+            href="/auth?step=roles"
+            className="text-xs font-medium text-soft-violet hover:underline"
+          >
+            ← Change role
+          </a>
         </div>
       </div>
     </div>

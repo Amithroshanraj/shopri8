@@ -17,6 +17,7 @@ import { CATEGORY_BY_ID } from "@/data/demo";
 import { formatPrice } from "@/lib/geo";
 import type { Product } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { ProductsSectionHeader } from "@/components/retailer/ProductsSectionHeader";
 
 export const Route = createFileRoute("/retailer/inventory")({
   head: () => ({
@@ -102,12 +103,12 @@ function RetailerInventory() {
 
   return (
     <div className="space-y-6">
+      <ProductsSectionHeader active="inventory" />
+
       {/* Header */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
-            Inventory & Stock
-          </h1>
+          <h2 className="font-display text-lg font-semibold text-foreground">Stock Overview</h2>
           <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
             Monitor real-time stock levels, update units, and prevent customer stockouts
           </p>

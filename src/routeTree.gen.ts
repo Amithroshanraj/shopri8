@@ -16,6 +16,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as CartRouteImport } from './routes/cart'
 import { Route as CategoriesRouteImport } from './routes/categories'
 import { Route as CheckoutRouteImport } from './routes/checkout'
+import { Route as HomeRouteImport } from './routes/home'
 import { Route as MapRouteImport } from './routes/map'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as RetailerRouteImport } from './routes/retailer'
@@ -24,6 +25,7 @@ import { Route as WorkerRouteImport } from './routes/worker'
 import { Route as AdminDashboardRouteImport } from './routes/admin.dashboard'
 import { Route as AdminDeliveryRouteImport } from './routes/admin.delivery'
 import { Route as AdminLoginRouteImport } from './routes/admin.login'
+import { Route as AdminMoreRouteImport } from './routes/admin.more'
 import { Route as AdminOrdersRouteImport } from './routes/admin.orders'
 import { Route as AdminProductsRouteImport } from './routes/admin.products'
 import { Route as AdminProfileRouteImport } from './routes/admin.profile'
@@ -35,13 +37,17 @@ import { Route as OrdersIndexRouteImport } from './routes/orders.index'
 import { Route as OrdersOrderIdRouteImport } from './routes/orders.$orderId'
 import { Route as ProductsProductIdRouteImport } from './routes/products.$productId'
 import { Route as RetailerDashboardRouteImport } from './routes/retailer.dashboard'
+import { Route as RetailerHelpRouteImport } from './routes/retailer.help'
 import { Route as RetailerInventoryRouteImport } from './routes/retailer.inventory'
 import { Route as RetailerLoginRouteImport } from './routes/retailer.login'
+import { Route as RetailerMoreRouteImport } from './routes/retailer.more'
 import { Route as RetailerProfileRouteImport } from './routes/retailer.profile'
 import { Route as RetailerShopRouteImport } from './routes/retailer.shop'
 import { Route as ShopsShopIdRouteImport } from './routes/shops.$shopId'
 import { Route as WorkerDashboardRouteImport } from './routes/worker.dashboard'
+import { Route as WorkerHelpRouteImport } from './routes/worker.help'
 import { Route as WorkerLoginRouteImport } from './routes/worker.login'
+import { Route as WorkerMoreRouteImport } from './routes/worker.more'
 import { Route as WorkerProfileRouteImport } from './routes/worker.profile'
 import { Route as AdminDeliveryTaskIdRouteImport } from './routes/admin.delivery.$taskId'
 import { Route as AdminOrdersOrderIdRouteImport } from './routes/admin.orders.$orderId'
@@ -92,6 +98,11 @@ const CheckoutRoute = CheckoutRouteImport.update({
   path: '/checkout',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HomeRoute = HomeRouteImport.update({
+  id: '/home',
+  path: '/home',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const MapRoute = MapRouteImport.update({
   id: '/map',
   path: '/map',
@@ -130,6 +141,11 @@ const AdminDeliveryRoute = AdminDeliveryRouteImport.update({
 const AdminLoginRoute = AdminLoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminMoreRoute = AdminMoreRouteImport.update({
+  id: '/more',
+  path: '/more',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminOrdersRoute = AdminOrdersRouteImport.update({
@@ -187,6 +203,11 @@ const RetailerDashboardRoute = RetailerDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => RetailerRoute,
 } as any)
+const RetailerHelpRoute = RetailerHelpRouteImport.update({
+  id: '/help',
+  path: '/help',
+  getParentRoute: () => RetailerRoute,
+} as any)
 const RetailerInventoryRoute = RetailerInventoryRouteImport.update({
   id: '/inventory',
   path: '/inventory',
@@ -195,6 +216,11 @@ const RetailerInventoryRoute = RetailerInventoryRouteImport.update({
 const RetailerLoginRoute = RetailerLoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => RetailerRoute,
+} as any)
+const RetailerMoreRoute = RetailerMoreRouteImport.update({
+  id: '/more',
+  path: '/more',
   getParentRoute: () => RetailerRoute,
 } as any)
 const RetailerProfileRoute = RetailerProfileRouteImport.update({
@@ -217,9 +243,19 @@ const WorkerDashboardRoute = WorkerDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => WorkerRoute,
 } as any)
+const WorkerHelpRoute = WorkerHelpRouteImport.update({
+  id: '/help',
+  path: '/help',
+  getParentRoute: () => WorkerRoute,
+} as any)
 const WorkerLoginRoute = WorkerLoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => WorkerRoute,
+} as any)
+const WorkerMoreRoute = WorkerMoreRouteImport.update({
+  id: '/more',
+  path: '/more',
   getParentRoute: () => WorkerRoute,
 } as any)
 const WorkerProfileRoute = WorkerProfileRouteImport.update({
@@ -303,6 +339,7 @@ export interface FileRoutesByFullPath {
   '/cart': typeof CartRoute
   '/categories': typeof CategoriesRoute
   '/checkout': typeof CheckoutRoute
+  '/home': typeof HomeRoute
   '/map': typeof MapRoute
   '/profile': typeof ProfileRoute
   '/retailer': typeof RetailerRouteWithChildren
@@ -311,6 +348,7 @@ export interface FileRoutesByFullPath {
   '/admin/dashboard': typeof AdminDashboardRoute
   '/admin/delivery': typeof AdminDeliveryRouteWithChildren
   '/admin/login': typeof AdminLoginRoute
+  '/admin/more': typeof AdminMoreRoute
   '/admin/orders': typeof AdminOrdersRouteWithChildren
   '/admin/products': typeof AdminProductsRouteWithChildren
   '/admin/profile': typeof AdminProfileRoute
@@ -321,13 +359,17 @@ export interface FileRoutesByFullPath {
   '/orders/$orderId': typeof OrdersOrderIdRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/retailer/dashboard': typeof RetailerDashboardRoute
+  '/retailer/help': typeof RetailerHelpRoute
   '/retailer/inventory': typeof RetailerInventoryRoute
   '/retailer/login': typeof RetailerLoginRoute
+  '/retailer/more': typeof RetailerMoreRoute
   '/retailer/profile': typeof RetailerProfileRoute
   '/retailer/shop': typeof RetailerShopRoute
   '/shops/$shopId': typeof ShopsShopIdRoute
   '/worker/dashboard': typeof WorkerDashboardRoute
+  '/worker/help': typeof WorkerHelpRoute
   '/worker/login': typeof WorkerLoginRoute
+  '/worker/more': typeof WorkerMoreRoute
   '/worker/profile': typeof WorkerProfileRoute
   '/orders/': typeof OrdersIndexRoute
   '/admin/delivery/$taskId': typeof AdminDeliveryTaskIdRoute
@@ -352,6 +394,7 @@ export interface FileRoutesByTo {
   '/cart': typeof CartRoute
   '/categories': typeof CategoriesRoute
   '/checkout': typeof CheckoutRoute
+  '/home': typeof HomeRoute
   '/map': typeof MapRoute
   '/profile': typeof ProfileRoute
   '/retailer': typeof RetailerRouteWithChildren
@@ -360,6 +403,7 @@ export interface FileRoutesByTo {
   '/admin/dashboard': typeof AdminDashboardRoute
   '/admin/delivery': typeof AdminDeliveryRouteWithChildren
   '/admin/login': typeof AdminLoginRoute
+  '/admin/more': typeof AdminMoreRoute
   '/admin/orders': typeof AdminOrdersRouteWithChildren
   '/admin/products': typeof AdminProductsRouteWithChildren
   '/admin/profile': typeof AdminProfileRoute
@@ -370,13 +414,17 @@ export interface FileRoutesByTo {
   '/orders/$orderId': typeof OrdersOrderIdRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/retailer/dashboard': typeof RetailerDashboardRoute
+  '/retailer/help': typeof RetailerHelpRoute
   '/retailer/inventory': typeof RetailerInventoryRoute
   '/retailer/login': typeof RetailerLoginRoute
+  '/retailer/more': typeof RetailerMoreRoute
   '/retailer/profile': typeof RetailerProfileRoute
   '/retailer/shop': typeof RetailerShopRoute
   '/shops/$shopId': typeof ShopsShopIdRoute
   '/worker/dashboard': typeof WorkerDashboardRoute
+  '/worker/help': typeof WorkerHelpRoute
   '/worker/login': typeof WorkerLoginRoute
+  '/worker/more': typeof WorkerMoreRoute
   '/worker/profile': typeof WorkerProfileRoute
   '/orders': typeof OrdersIndexRoute
   '/admin/delivery/$taskId': typeof AdminDeliveryTaskIdRoute
@@ -402,6 +450,7 @@ export interface FileRoutesById {
   '/cart': typeof CartRoute
   '/categories': typeof CategoriesRoute
   '/checkout': typeof CheckoutRoute
+  '/home': typeof HomeRoute
   '/map': typeof MapRoute
   '/profile': typeof ProfileRoute
   '/retailer': typeof RetailerRouteWithChildren
@@ -410,6 +459,7 @@ export interface FileRoutesById {
   '/admin/dashboard': typeof AdminDashboardRoute
   '/admin/delivery': typeof AdminDeliveryRouteWithChildren
   '/admin/login': typeof AdminLoginRoute
+  '/admin/more': typeof AdminMoreRoute
   '/admin/orders': typeof AdminOrdersRouteWithChildren
   '/admin/products': typeof AdminProductsRouteWithChildren
   '/admin/profile': typeof AdminProfileRoute
@@ -420,13 +470,17 @@ export interface FileRoutesById {
   '/orders/$orderId': typeof OrdersOrderIdRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/retailer/dashboard': typeof RetailerDashboardRoute
+  '/retailer/help': typeof RetailerHelpRoute
   '/retailer/inventory': typeof RetailerInventoryRoute
   '/retailer/login': typeof RetailerLoginRoute
+  '/retailer/more': typeof RetailerMoreRoute
   '/retailer/profile': typeof RetailerProfileRoute
   '/retailer/shop': typeof RetailerShopRoute
   '/shops/$shopId': typeof ShopsShopIdRoute
   '/worker/dashboard': typeof WorkerDashboardRoute
+  '/worker/help': typeof WorkerHelpRoute
   '/worker/login': typeof WorkerLoginRoute
+  '/worker/more': typeof WorkerMoreRoute
   '/worker/profile': typeof WorkerProfileRoute
   '/orders/': typeof OrdersIndexRoute
   '/admin/delivery/$taskId': typeof AdminDeliveryTaskIdRoute
@@ -453,6 +507,7 @@ export interface FileRouteTypes {
     | '/cart'
     | '/categories'
     | '/checkout'
+    | '/home'
     | '/map'
     | '/profile'
     | '/retailer'
@@ -461,6 +516,7 @@ export interface FileRouteTypes {
     | '/admin/dashboard'
     | '/admin/delivery'
     | '/admin/login'
+    | '/admin/more'
     | '/admin/orders'
     | '/admin/products'
     | '/admin/profile'
@@ -471,13 +527,17 @@ export interface FileRouteTypes {
     | '/orders/$orderId'
     | '/products/$productId'
     | '/retailer/dashboard'
+    | '/retailer/help'
     | '/retailer/inventory'
     | '/retailer/login'
+    | '/retailer/more'
     | '/retailer/profile'
     | '/retailer/shop'
     | '/shops/$shopId'
     | '/worker/dashboard'
+    | '/worker/help'
     | '/worker/login'
+    | '/worker/more'
     | '/worker/profile'
     | '/orders/'
     | '/admin/delivery/$taskId'
@@ -502,6 +562,7 @@ export interface FileRouteTypes {
     | '/cart'
     | '/categories'
     | '/checkout'
+    | '/home'
     | '/map'
     | '/profile'
     | '/retailer'
@@ -510,6 +571,7 @@ export interface FileRouteTypes {
     | '/admin/dashboard'
     | '/admin/delivery'
     | '/admin/login'
+    | '/admin/more'
     | '/admin/orders'
     | '/admin/products'
     | '/admin/profile'
@@ -520,13 +582,17 @@ export interface FileRouteTypes {
     | '/orders/$orderId'
     | '/products/$productId'
     | '/retailer/dashboard'
+    | '/retailer/help'
     | '/retailer/inventory'
     | '/retailer/login'
+    | '/retailer/more'
     | '/retailer/profile'
     | '/retailer/shop'
     | '/shops/$shopId'
     | '/worker/dashboard'
+    | '/worker/help'
     | '/worker/login'
+    | '/worker/more'
     | '/worker/profile'
     | '/orders'
     | '/admin/delivery/$taskId'
@@ -551,6 +617,7 @@ export interface FileRouteTypes {
     | '/cart'
     | '/categories'
     | '/checkout'
+    | '/home'
     | '/map'
     | '/profile'
     | '/retailer'
@@ -559,6 +626,7 @@ export interface FileRouteTypes {
     | '/admin/dashboard'
     | '/admin/delivery'
     | '/admin/login'
+    | '/admin/more'
     | '/admin/orders'
     | '/admin/products'
     | '/admin/profile'
@@ -569,13 +637,17 @@ export interface FileRouteTypes {
     | '/orders/$orderId'
     | '/products/$productId'
     | '/retailer/dashboard'
+    | '/retailer/help'
     | '/retailer/inventory'
     | '/retailer/login'
+    | '/retailer/more'
     | '/retailer/profile'
     | '/retailer/shop'
     | '/shops/$shopId'
     | '/worker/dashboard'
+    | '/worker/help'
     | '/worker/login'
+    | '/worker/more'
     | '/worker/profile'
     | '/orders/'
     | '/admin/delivery/$taskId'
@@ -601,6 +673,7 @@ export interface RootRouteChildren {
   CartRoute: typeof CartRoute
   CategoriesRoute: typeof CategoriesRoute
   CheckoutRoute: typeof CheckoutRoute
+  HomeRoute: typeof HomeRoute
   MapRoute: typeof MapRoute
   ProfileRoute: typeof ProfileRoute
   RetailerRoute: typeof RetailerRouteWithChildren
@@ -663,6 +736,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CheckoutRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/home': {
+      id: '/home'
+      path: '/home'
+      fullPath: '/home'
+      preLoaderRoute: typeof HomeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/map': {
       id: '/map'
       path: '/map'
@@ -717,6 +797,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/admin/login'
       preLoaderRoute: typeof AdminLoginRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/more': {
+      id: '/admin/more'
+      path: '/more'
+      fullPath: '/admin/more'
+      preLoaderRoute: typeof AdminMoreRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/orders': {
@@ -796,6 +883,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RetailerDashboardRouteImport
       parentRoute: typeof RetailerRoute
     }
+    '/retailer/help': {
+      id: '/retailer/help'
+      path: '/help'
+      fullPath: '/retailer/help'
+      preLoaderRoute: typeof RetailerHelpRouteImport
+      parentRoute: typeof RetailerRoute
+    }
     '/retailer/inventory': {
       id: '/retailer/inventory'
       path: '/inventory'
@@ -808,6 +902,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/retailer/login'
       preLoaderRoute: typeof RetailerLoginRouteImport
+      parentRoute: typeof RetailerRoute
+    }
+    '/retailer/more': {
+      id: '/retailer/more'
+      path: '/more'
+      fullPath: '/retailer/more'
+      preLoaderRoute: typeof RetailerMoreRouteImport
       parentRoute: typeof RetailerRoute
     }
     '/retailer/profile': {
@@ -838,11 +939,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkerDashboardRouteImport
       parentRoute: typeof WorkerRoute
     }
+    '/worker/help': {
+      id: '/worker/help'
+      path: '/help'
+      fullPath: '/worker/help'
+      preLoaderRoute: typeof WorkerHelpRouteImport
+      parentRoute: typeof WorkerRoute
+    }
     '/worker/login': {
       id: '/worker/login'
       path: '/login'
       fullPath: '/worker/login'
       preLoaderRoute: typeof WorkerLoginRouteImport
+      parentRoute: typeof WorkerRoute
+    }
+    '/worker/more': {
+      id: '/worker/more'
+      path: '/more'
+      fullPath: '/worker/more'
+      preLoaderRoute: typeof WorkerMoreRouteImport
       parentRoute: typeof WorkerRoute
     }
     '/worker/profile': {
@@ -1022,6 +1137,7 @@ interface AdminRouteChildren {
   AdminDashboardRoute: typeof AdminDashboardRoute
   AdminDeliveryRoute: typeof AdminDeliveryRouteWithChildren
   AdminLoginRoute: typeof AdminLoginRoute
+  AdminMoreRoute: typeof AdminMoreRoute
   AdminOrdersRoute: typeof AdminOrdersRouteWithChildren
   AdminProductsRoute: typeof AdminProductsRouteWithChildren
   AdminProfileRoute: typeof AdminProfileRoute
@@ -1035,6 +1151,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminDashboardRoute: AdminDashboardRoute,
   AdminDeliveryRoute: AdminDeliveryRouteWithChildren,
   AdminLoginRoute: AdminLoginRoute,
+  AdminMoreRoute: AdminMoreRoute,
   AdminOrdersRoute: AdminOrdersRouteWithChildren,
   AdminProductsRoute: AdminProductsRouteWithChildren,
   AdminProfileRoute: AdminProfileRoute,
@@ -1048,8 +1165,10 @@ const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
 interface RetailerRouteChildren {
   RetailerDashboardRoute: typeof RetailerDashboardRoute
+  RetailerHelpRoute: typeof RetailerHelpRoute
   RetailerInventoryRoute: typeof RetailerInventoryRoute
   RetailerLoginRoute: typeof RetailerLoginRoute
+  RetailerMoreRoute: typeof RetailerMoreRoute
   RetailerProfileRoute: typeof RetailerProfileRoute
   RetailerShopRoute: typeof RetailerShopRoute
   RetailerOrdersOrderIdRoute: typeof RetailerOrdersOrderIdRoute
@@ -1061,8 +1180,10 @@ interface RetailerRouteChildren {
 
 const RetailerRouteChildren: RetailerRouteChildren = {
   RetailerDashboardRoute: RetailerDashboardRoute,
+  RetailerHelpRoute: RetailerHelpRoute,
   RetailerInventoryRoute: RetailerInventoryRoute,
   RetailerLoginRoute: RetailerLoginRoute,
+  RetailerMoreRoute: RetailerMoreRoute,
   RetailerProfileRoute: RetailerProfileRoute,
   RetailerShopRoute: RetailerShopRoute,
   RetailerOrdersOrderIdRoute: RetailerOrdersOrderIdRoute,
@@ -1078,7 +1199,9 @@ const RetailerRouteWithChildren = RetailerRoute._addFileChildren(
 
 interface WorkerRouteChildren {
   WorkerDashboardRoute: typeof WorkerDashboardRoute
+  WorkerHelpRoute: typeof WorkerHelpRoute
   WorkerLoginRoute: typeof WorkerLoginRoute
+  WorkerMoreRoute: typeof WorkerMoreRoute
   WorkerProfileRoute: typeof WorkerProfileRoute
   WorkerTasksTaskIdRoute: typeof WorkerTasksTaskIdRoute
   WorkerTasksIndexRoute: typeof WorkerTasksIndexRoute
@@ -1086,7 +1209,9 @@ interface WorkerRouteChildren {
 
 const WorkerRouteChildren: WorkerRouteChildren = {
   WorkerDashboardRoute: WorkerDashboardRoute,
+  WorkerHelpRoute: WorkerHelpRoute,
   WorkerLoginRoute: WorkerLoginRoute,
+  WorkerMoreRoute: WorkerMoreRoute,
   WorkerProfileRoute: WorkerProfileRoute,
   WorkerTasksTaskIdRoute: WorkerTasksTaskIdRoute,
   WorkerTasksIndexRoute: WorkerTasksIndexRoute,
@@ -1103,6 +1228,7 @@ const rootRouteChildren: RootRouteChildren = {
   CartRoute: CartRoute,
   CategoriesRoute: CategoriesRoute,
   CheckoutRoute: CheckoutRoute,
+  HomeRoute: HomeRoute,
   MapRoute: MapRoute,
   ProfileRoute: ProfileRoute,
   RetailerRoute: RetailerRouteWithChildren,

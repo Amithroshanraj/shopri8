@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Bike, Check, Footprints, UserRound } from "lucide-react";
+import { Bike, Check, Footprints, LogOut, UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useWorkerAuth, type DeliveryMode } from "@/lib/workerAuth";
@@ -16,7 +16,7 @@ const MODES: { name: DeliveryMode; icon: typeof Bike }[] = [
 ];
 
 function WorkerProfile() {
-  const { user, updateProfile } = useWorkerAuth();
+  const { user, updateProfile, logout } = useWorkerAuth();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(user?.displayName ?? "");
   const [phone, setPhone] = useState(user?.phoneNumber ?? "");
@@ -159,6 +159,16 @@ function WorkerProfile() {
           </div>
         </form>
       )}
+      <button
+        type="button"
+        onClick={() => {
+          logout();
+          window.location.assign("/");
+        }}
+        className="press flex w-full items-center justify-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 py-3 text-sm font-semibold text-destructive"
+      >
+        <LogOut className="h-4 w-4" /> Log out
+      </button>
     </div>
   );
 }

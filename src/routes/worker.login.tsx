@@ -3,6 +3,7 @@ import { LockKeyhole, Mail, Package } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { DEMO_WORKER_CREDENTIALS, useWorkerAuth } from "@/lib/workerAuth";
+import { consumeDemoReturnTo } from "@/lib/demoAuth";
 
 export const Route = createFileRoute("/worker/login")({
   head: () => ({
@@ -27,7 +28,10 @@ function WorkerLogin() {
     try {
       await login({ email, password });
       toast.success("Welcome to your delivery tasks");
-      navigate({ to: "/worker/dashboard", replace: true });
+      navigate({
+        to: consumeDemoReturnTo("deliveryWorker", "/worker/dashboard") as never,
+        replace: true,
+      });
     } catch (error) {
       toast.error("Sign in failed", {
         description: error instanceof Error ? error.message : "Check your credentials and retry.",
@@ -101,12 +105,12 @@ function WorkerLogin() {
           </form>
         </div>
 
-        <Link
-          to="/"
+        <a
+          href="/auth?step=roles"
           className="mt-5 block text-center text-xs text-muted-foreground hover:text-foreground"
         >
-          Back to SHOPRi8
-        </Link>
+          ← Change role
+        </a>
       </div>
     </div>
   );

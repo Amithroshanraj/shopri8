@@ -112,6 +112,7 @@ export function ProductRow({ product }: { product: Product }) {
     >
       <MediaTile
         src={product.image}
+        imageSource={product.imageSource}
         alt={product.name}
         category={product.category}
         className="h-14 w-14 shrink-0"

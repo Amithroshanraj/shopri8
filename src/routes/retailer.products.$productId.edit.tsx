@@ -4,7 +4,10 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useRetailerStore } from "@/lib/retailerStore";
 import { CATEGORIES } from "@/data/demo";
+import type { ProductImageSource } from "@/lib/productImage";
 import type { CategoryId } from "@/lib/types";
+import { ProductImagePicker } from "@/components/product/ProductImagePicker";
+import { usePickerPreviewSrc, useProductImage } from "@/components/product/useProductImage";
 
 export const Route = createFileRoute("/retailer/products/$productId/edit")({
   head: () => ({
@@ -31,9 +34,11 @@ function EditProduct() {
     price: "",
     stock: "",
     unit: "",
-    image: "",
     availability: true,
   });
+  const [imageSource, setImageSource] = useState<ProductImageSource | null>(null);
+  const currentImage = useProductImage(product ?? {});
+  const pickerPreviewSrc = usePickerPreviewSrc(imageSource, currentImage.src);
 
   // Sync form when product is found/loaded
   useEffect(() => {
@@ -45,9 +50,11 @@ function EditProduct() {
         price: product.price.toString(),
         stock: product.stock.toString(),
         unit: product.unit || "",
-        image: product.image || "",
         availability: product.availability,
       });
+      // Seed from the stored source. A product with only a legacy `image` keeps
+      // rendering it through the legacy channel until a new image is chosen.
+      setImageSource(product.imageSource ?? null);
     }
   }, [product]);
 
@@ -111,7 +118,8 @@ function EditProduct() {
         price,
         stock,
         unit: formData.unit.trim() || undefined,
-        image: formData.image.trim() || undefined,
+        // Changing the image never touches id, stock, availability or shop.
+        imageSource: imageSource ?? undefined,
         availability: formData.availability && stock > 0,
       });
 
@@ -255,18 +263,13 @@ function EditProduct() {
             </div>
           </div>
 
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-foreground">
-              Local Image Asset Path / URL (Optional)
-            </label>
-            <input
-              type="text"
-              value={formData.image}
-              onChange={(e) => setFormData({ ...formData, image: e.target.value })}
-              placeholder="e.g. /assets/categories/grocery.webp"
-              className="w-full rounded-xl border border-input bg-background/50 px-4 py-2.5 text-sm outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-            />
-          </div>
+          <ProductImagePicker
+            imageSource={imageSource ?? undefined}
+            previewSrc={pickerPreviewSrc}
+            category={formData.category}
+            productName={formData.name || product.name}
+            onChange={setImageSource}
+          />
 
           <div className="rounded-2xl border border-border/70 bg-card/60 p-4">
             <label className="flex items-center gap-3 cursor-pointer">

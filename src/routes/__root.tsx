@@ -4,15 +4,18 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useNavigate,
+  useRouterState,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { CartProvider } from "../lib/cart";
+import { consumeDemoReturnTo, rememberDemoReturnTo, useDemoSession } from "../lib/demoAuth";
+import { ROLE_LANDING, resolveCustomerGate } from "../lib/customerGate";
 import { Toaster } from "../components/ui/sonner";
-import { reportLovableError } from "../lib/lovable-error-reporting";
 
 function NotFoundComponent() {
   return (
@@ -39,9 +42,6 @@ function NotFoundComponent() {
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
-  useEffect(() => {
-    reportLovableError(error, { boundary: "tanstack_root_error_component" });
-  }, [error]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -124,9 +124,44 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <CartProvider>
-        <Outlet />
+        <CustomerRouteGate />
         <Toaster position="top-center" />
       </CartProvider>
     </QueryClientProvider>
   );
+}
+
+/**
+ * Guards the customer storefront. Role portals keep their own guards, so they
+ * are never redirected here. Everything else requires a customer session:
+ * signed-out visitors land on /auth and return to their deep link afterwards.
+ */
+function CustomerRouteGate() {
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const navigate = useNavigate();
+  const { loading, activeRole } = useDemoSession("customer");
+  const decision = useMemo(
+    () => resolveCustomerGate({ pathname, activeRole, loading }),
+    [pathname, activeRole, loading],
+  );
+
+  useEffect(() => {
+    if (!decision.redirect) return;
+    if (decision.remember) rememberDemoReturnTo("customer", pathname);
+    const to =
+      decision.redirect.kind === "customer-return-to"
+        ? consumeDemoReturnTo("customer", ROLE_LANDING.customer)
+        : decision.redirect.to;
+    navigate({ to: to as never, replace: true });
+  }, [decision, navigate, pathname]);
+
+  // Blocked combinations render nothing, so protected content never flashes.
+  if (decision.render === "loading") {
+    return (
+      <div className="app-ambience flex min-h-screen items-center justify-center px-4">
+        <p className="text-sm text-muted-foreground">Loading SHOPRi8...</p>
+      </div>
+    );
+  }
+  return decision.render === "outlet" ? <Outlet /> : null;
 }

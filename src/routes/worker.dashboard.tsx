@@ -82,10 +82,10 @@ function WorkerDashboard() {
             aria-checked={Boolean(user?.available)}
             aria-label="Available for delivery tasks"
             onClick={() => setAvailable(!user?.available)}
-            className={`relative h-7 w-12 rounded-full transition-colors ${user?.available ? "bg-primary" : "bg-muted"}`}
+            className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${user?.available ? "bg-primary" : "bg-muted"}`}
           >
             <span
-              className={`absolute top-1 h-5 w-5 rounded-full bg-white transition-transform ${user?.available ? "translate-x-6" : "translate-x-1"}`}
+              className={`absolute left-0 top-1 h-5 w-5 rounded-full bg-primary-foreground shadow-sm transition-transform ${user?.available ? "translate-x-6" : "translate-x-1"}`}
             />
           </button>
         </div>

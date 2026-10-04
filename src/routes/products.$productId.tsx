@@ -42,6 +42,7 @@ function ProductPage() {
       <PageHeader title={product.name} />
       <MediaTile
         src={product.image}
+        imageSource={product.imageSource}
         alt={product.name}
         category={product.category}
         className="mb-5 aspect-square w-full sm:aspect-video"

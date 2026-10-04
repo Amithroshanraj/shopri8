@@ -1,30 +1,34 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, ListChecks, LogOut, Menu, Package, UserRound, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Package } from "lucide-react";
+import { useEffect } from "react";
 import { useWorkerAuth } from "@/lib/workerAuth";
+import { rememberDemoReturnTo } from "@/lib/demoAuth";
+import { WORKER_NAV, portalNavKeyFor } from "@/lib/portalNav";
+import { PORTAL_CONTENT_PADDING, PortalBottomNav } from "@/components/layout/PortalBottomNav";
 import { cn } from "@/lib/utils";
 
-const NAV_ITEMS = [
-  { to: "/worker/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/worker/tasks", label: "Tasks", icon: ListChecks },
-  { to: "/worker/profile", label: "Profile", icon: UserRound },
-] as const;
-
+/**
+ * Delivery Worker shell.
+ * - Leaves /worker/login publicly accessible without layout or auth blocking.
+ * - Mobile uses the shared fixed four-item bottom bar; desktop reuses the same
+ *   destinations in a sidebar. Sign out lives under More, not in either.
+ */
 export function WorkerShell() {
-  const { user, loading, isAuthenticated, logout } = useWorkerAuth();
+  const { user, loading, isAuthenticated } = useWorkerAuth();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const navigate = useNavigate();
-  const [menuOpen, setMenuOpen] = useState(false);
   const isLogin = pathname === "/worker/login";
+  const activeKey = portalNavKeyFor(pathname);
 
   useEffect(() => {
     if (loading) return;
     if (isLogin && isAuthenticated) {
       navigate({ to: "/worker/dashboard", replace: true });
     } else if (!isLogin && !isAuthenticated) {
+      rememberDemoReturnTo("deliveryWorker", pathname);
       navigate({ to: "/worker/login", replace: true });
     }
-  }, [isAuthenticated, isLogin, loading, navigate]);
+  }, [isAuthenticated, isLogin, loading, navigate, pathname]);
 
   if (isLogin) return <Outlet />;
 
@@ -41,15 +45,9 @@ export function WorkerShell() {
 
   if (!isAuthenticated) return null;
 
-  const signOut = () => {
-    logout();
-    setMenuOpen(false);
-    navigate({ to: "/worker/login", replace: true });
-  };
-
   return (
     <div className="min-h-screen bg-background md:flex">
-      <header className="sticky top-0 z-40 flex items-center justify-between border-b border-border bg-background/85 px-4 py-3 backdrop-blur-md md:hidden">
+      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background/85 px-4 py-3 backdrop-blur-md md:hidden">
         <div className="flex min-w-0 items-center gap-2.5">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/20 text-soft-violet">
             <Package className="h-4 w-4" />
@@ -59,65 +57,21 @@ export function WorkerShell() {
             <p className="truncate text-xs text-muted-foreground">Delivery Worker</p>
           </div>
         </div>
-        <button
-          type="button"
-          aria-label="Open navigation menu"
-          onClick={() => setMenuOpen(true)}
-          className="press rounded-xl border border-border bg-card/60 p-2.5"
+        <span
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[0.65rem] font-medium",
+            user?.available ? "bg-success/15 text-success" : "bg-muted text-muted-foreground",
+          )}
         >
-          <Menu className="h-5 w-5" />
-        </button>
+          <span
+            className={cn(
+              "h-1.5 w-1.5 rounded-full",
+              user?.available ? "bg-success" : "bg-muted-foreground",
+            )}
+          />
+          {user?.available ? "Available" : "Offline"}
+        </span>
       </header>
-
-      {menuOpen && (
-        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm md:hidden">
-          <div className="ml-auto flex h-full w-full max-w-xs flex-col border-l border-border bg-background p-5 shadow-2xl animate-in slide-in-from-right duration-200">
-            <div className="flex items-center justify-between border-b border-border pb-4">
-              <div className="min-w-0">
-                <p className="font-display text-sm font-semibold">Delivery Worker</p>
-                <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
-              </div>
-              <button
-                type="button"
-                aria-label="Close navigation menu"
-                onClick={() => setMenuOpen(false)}
-                className="rounded-lg p-2 text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <nav className="mt-5 flex-1 space-y-1.5">
-              {NAV_ITEMS.map((item) => {
-                const Icon = item.icon;
-                const active = pathname === item.to || pathname.startsWith(`${item.to}/`);
-                return (
-                  <Link
-                    key={item.to}
-                    to={item.to}
-                    onClick={() => setMenuOpen(false)}
-                    className={cn(
-                      "press flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium",
-                      active
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                    )}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </nav>
-            <button
-              type="button"
-              onClick={signOut}
-              className="press flex items-center gap-3 border-t border-border pt-4 text-sm font-medium text-destructive"
-            >
-              <LogOut className="h-4 w-4" /> Log out
-            </button>
-          </div>
-        </div>
-      )}
 
       <aside className="hidden w-64 shrink-0 border-r border-border bg-card/30 backdrop-blur-md md:flex md:flex-col">
         <div className="sticky top-0 flex h-screen flex-col p-5">
@@ -130,14 +84,15 @@ export function WorkerShell() {
               <p className="text-xs text-muted-foreground">Delivery Worker</p>
             </div>
           </div>
-          <nav className="flex-1 space-y-1.5">
-            {NAV_ITEMS.map((item) => {
-              const Icon = item.icon;
-              const active = pathname === item.to || pathname.startsWith(`${item.to}/`);
+
+          <nav aria-label="Delivery sections" className="flex-1 space-y-1.5">
+            {WORKER_NAV.items.map(({ key, to, label, icon: Icon }) => {
+              const active = activeKey === key;
               return (
                 <Link
-                  key={item.to}
-                  to={item.to}
+                  key={key}
+                  to={to}
+                  aria-current={active ? "page" : undefined}
                   className={cn(
                     "press flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-medium transition-colors",
                     active
@@ -145,31 +100,36 @@ export function WorkerShell() {
                       : "text-muted-foreground hover:bg-accent hover:text-foreground",
                   )}
                 >
-                  <Icon className="h-4 w-4" />
-                  {item.label}
+                  <Icon className="h-4 w-4 shrink-0" strokeWidth={1.8} />
+                  {label}
                 </Link>
               );
             })}
           </nav>
+
           <div className="mt-auto border-t border-border/70 pt-4">
-            <p className="truncate px-2 text-sm font-semibold">{user?.displayName}</p>
-            <p className="truncate px-2 text-xs text-muted-foreground">{user?.email}</p>
-            <button
-              type="button"
-              onClick={signOut}
-              className="press mt-3 flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+            <Link
+              to="/worker/profile"
+              className="press block rounded-xl px-2 py-1 transition-colors hover:bg-accent"
             >
-              <LogOut className="h-4 w-4" /> Log out
-            </button>
+              <p className="truncate text-sm font-semibold">{user?.displayName}</p>
+              <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
+            </Link>
           </div>
         </div>
       </aside>
 
       <main className="min-w-0 flex-1">
-        <div className="mx-auto max-w-6xl p-4 sm:p-6 lg:p-8">
+        <div className={cn("mx-auto max-w-6xl p-4 sm:p-6 lg:p-8", PORTAL_CONTENT_PADDING)}>
           <Outlet />
         </div>
       </main>
+
+      <PortalBottomNav
+        items={WORKER_NAV.items}
+        activeKey={activeKey}
+        ariaLabel="Delivery sections"
+      />
     </div>
   );
 }

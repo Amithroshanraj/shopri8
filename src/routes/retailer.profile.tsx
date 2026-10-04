@@ -1,10 +1,11 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Clock, LogOut, Mail, MapPin, Phone, ShieldCheck, Store, User } from "lucide-react";
+import { createFileRoute } from "@tanstack/react-router";
+import { Clock, Mail, MapPin, Phone, ShieldCheck, Store, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useRetailerAuth } from "@/lib/retailerAuth";
 import { useRetailerStore } from "@/lib/retailerStore";
 import { CATEGORY_BY_ID } from "@/data/demo";
+import { RoleSignOut } from "@/components/layout/RoleSignOut";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/retailer/profile")({
@@ -18,7 +19,6 @@ export const Route = createFileRoute("/retailer/profile")({
 });
 
 function RetailerProfile() {
-  const navigate = useNavigate();
   const { user, logout, updateProfile } = useRetailerAuth();
   const { shop } = useRetailerStore();
   const [isEditing, setIsEditing] = useState(false);
@@ -43,14 +43,6 @@ function RetailerProfile() {
     } finally {
       setSaving(false);
     }
-  };
-
-  const handleLogout = async () => {
-    await logout();
-    toast.success("Signed out successfully", {
-      description: "You have been logged out of the Retailer Portal.",
-    });
-    navigate({ to: "/retailer/login" });
   };
 
   return (
@@ -208,15 +200,13 @@ function RetailerProfile() {
         </div>
       )}
 
-      {/* Sign Out Action */}
-      <div className="pt-2">
-        <button
-          onClick={handleLogout}
-          className="press flex w-full items-center justify-center gap-2.5 rounded-2xl border border-destructive/30 bg-destructive/10 py-3 text-xs font-semibold text-destructive shadow-sm transition-all hover:bg-destructive/20"
-        >
-          <LogOut className="h-4 w-4" />
-          Sign Out of Retailer Account
-        </button>
+      {/* Sign Out Action — same confirmation used from More */}
+      <div className="rounded-2xl border border-destructive/30 bg-destructive/10">
+        <RoleSignOut
+          onSignOut={logout}
+          redirectTo="/retailer/login"
+          label="Sign Out of Retailer Account"
+        />
       </div>
 
       {/* Meta Footer */}

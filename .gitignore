@@ -20,6 +20,14 @@ dist-ssr
 .wrangler/
 .dev.vars
 
+# Environment variables — never commit secrets (Firebase, Cashfree keys)
+.env
+.env.*
+!.env.example
+
+# Firebase CLI build output
+.firebase/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

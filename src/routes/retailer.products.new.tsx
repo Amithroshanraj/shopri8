@@ -4,7 +4,10 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useRetailerStore } from "@/lib/retailerStore";
 import { CATEGORIES } from "@/data/demo";
+import type { ProductImageSource } from "@/lib/productImage";
 import type { CategoryId } from "@/lib/types";
+import { ProductImagePicker } from "@/components/product/ProductImagePicker";
+import { usePickerPreviewSrc } from "@/components/product/useProductImage";
 
 export const Route = createFileRoute("/retailer/products/new")({
   head: () => ({
@@ -28,9 +31,10 @@ function AddProduct() {
     price: "",
     stock: "",
     unit: "",
-    image: "",
     availability: true,
   });
+  const [imageSource, setImageSource] = useState<ProductImageSource | null>(null);
+  const pickerPreviewSrc = usePickerPreviewSrc(imageSource);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,7 +67,8 @@ function AddProduct() {
         price,
         stock,
         unit: formData.unit.trim() || undefined,
-        image: formData.image.trim() || undefined,
+        // A catalogue image is referenced by id; an upload carries its own ref.
+        imageSource: imageSource ?? undefined,
         availability: formData.availability && stock > 0,
       });
 
@@ -193,21 +198,13 @@ function AddProduct() {
             </div>
           </div>
 
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-foreground">
-              Local Image Asset Path / URL (Optional)
-            </label>
-            <input
-              type="text"
-              value={formData.image}
-              onChange={(e) => setFormData({ ...formData, image: e.target.value })}
-              placeholder="e.g. /assets/products/rice.webp or leave empty for category default"
-              className="w-full rounded-xl border border-input bg-background/50 px-4 py-2.5 text-sm outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-            />
-            <p className="mt-1 text-[0.7rem] text-muted-foreground">
-              Images are referenced by local asset path. No external binary storage needed.
-            </p>
-          </div>
+          <ProductImagePicker
+            imageSource={imageSource ?? undefined}
+            previewSrc={pickerPreviewSrc}
+            category={formData.category}
+            productName={formData.name || "Product"}
+            onChange={setImageSource}
+          />
 
           <div className="rounded-2xl border border-border/70 bg-card/60 p-4">
             <label className="flex items-center gap-3 cursor-pointer">

@@ -7,6 +7,9 @@ import { CATEGORIES, CATEGORY_BY_ID } from "@/data/demo";
 import { formatPrice } from "@/lib/geo";
 import type { CategoryId, Product } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { MediaTile } from "@/components/common/MediaTile";
+import { ImageMeta } from "@/components/product/ImageMeta";
+import { ProductsSectionHeader } from "@/components/retailer/ProductsSectionHeader";
 
 export const Route = createFileRoute("/retailer/products/")({
   head: () => ({
@@ -69,12 +72,12 @@ function RetailerProducts() {
 
   return (
     <div className="space-y-6">
+      <ProductsSectionHeader active="products" />
+
       {/* Page Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
-            Product Catalogue
-          </h1>
+          <h2 className="font-display text-lg font-semibold text-foreground">Product Catalogue</h2>
           <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
             Manage product pricing, stock availability, and shop listings
           </p>
@@ -180,9 +183,14 @@ function RetailerProducts() {
                 <div>
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="flex items-center gap-2 min-w-0">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-soft-violet font-semibold text-xs">
-                        📦
-                      </div>
+                      <MediaTile
+                        src={product.image}
+                        imageSource={product.imageSource}
+                        alt={product.name}
+                        category={product.category}
+                        className="h-10 w-10 shrink-0"
+                        iconClassName="h-5 w-5"
+                      />
                       <div className="min-w-0 flex-1">
                         <h3 className="truncate text-sm font-semibold text-foreground">
                           {product.name}
@@ -240,6 +248,8 @@ function RetailerProducts() {
                       {isOutOfStock ? "Out of Stock" : `${product.stock} in stock`}
                     </span>
                   </div>
+
+                  <ImageMeta product={product} />
                 </div>
 
                 {/* Card Action Footer */}

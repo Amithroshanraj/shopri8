@@ -1,9 +1,8 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ChevronRight, LogIn, LogOut, MapPin, Package, User } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Wordmark } from "@/components/brand/Wordmark";
 import { useAuth } from "@/hooks/useAuth";
-import { signOut } from "@/lib/firebase/auth";
 
 export const Route = createFileRoute("/profile")({
   head: () => ({
@@ -18,7 +17,8 @@ export const Route = createFileRoute("/profile")({
 });
 
 function Profile() {
-  const { user } = useAuth();
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const rows = [
     { to: "/orders", label: "My orders", icon: Package },
     { to: "/addresses", label: "Saved addresses", icon: MapPin },
@@ -54,7 +54,10 @@ function Profile() {
       </div>
       {user ? (
         <button
-          onClick={() => signOut()}
+          onClick={() => {
+            logout();
+            navigate({ to: "/auth", replace: true });
+          }}
           className="press flex w-full items-center justify-center gap-2 rounded-2xl glass-1 py-3.5 text-sm font-semibold text-destructive"
         >
           <LogOut className="h-4 w-4" /> Sign out

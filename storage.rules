@@ -1,0 +1,82 @@
+rules_version = '2';
+
+/**
+ * SHOPRi8 Cloud Storage rules.
+ *
+ * Storage holds exactly one thing: retailer-specific product image uploads, at
+ *
+ *   shops/{shopId}/products/{productId}/{fileName}
+ *
+ * SHOPRi8 catalogue images are bundled with the application and referenced by
+ * import path. They never appear in Storage, so this file deliberately has no
+ * catalogue rules — there is nothing to protect there.
+ *
+ * Authorisation mirrors `firestore.rules`: the retailer who owns the shop may
+ * write that shop's product images, and only images belonging to that shop.
+ */
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isUser(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function userDoc(uid) {
+      return firestore.get(/databases/(default)/documents/users/$(uid));
+    }
+
+    function capabilitiesOf(uid) {
+      return userDoc(uid).data.capabilities;
+    }
+
+    function hasCapability(capability) {
+      return isSignedIn()
+        && capabilitiesOf(request.auth.uid) is list
+        && capability in capabilitiesOf(request.auth.uid);
+    }
+
+    function isRetailer() {
+      return hasCapability('retailer');
+    }
+
+    function isAdmin() {
+      return hasCapability('admin');
+    }
+
+    /**
+     * True when the caller is the retailer who owns `shopId`.
+     *
+     * The shop is read from Firestore rather than trusted from the path, so a
+     * retailer cannot write into another retailer's folder by guessing its id.
+     */
+    function ownsShop(shopId) {
+      return isRetailer()
+        && firestore.exists(/databases/(default)/documents/shops/$(shopId))
+        && firestore.get(/databases/(default)/documents/shops/$(shopId)).data.ownerId
+             == request.auth.uid;
+    }
+
+    // Retailer product images: shops/{shopId}/products/{productId}/{fileName}
+    match /shops/{shopId}/products/{productId}/{fileName} {
+      // Only the owning retailer may upload.
+      allow write: if ownsShop(shopId);
+
+      /**
+       * Product images are shown in the public storefront, so any signed-in user
+       * may read them. Unsigned reads are denied because the catalogue is served
+       * through the app, which is always signed in for the customer role.
+       */
+      allow read: if isSignedIn() || isAdmin();
+    }
+
+    // Nothing else is writable in this bucket.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

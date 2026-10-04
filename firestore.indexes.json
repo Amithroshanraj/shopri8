@@ -1,0 +1,62 @@
+{
+  "comment": "SHOPRi8 Firestore composite indexes. Mirrors the queries in src/lib/firebase/firestore.ts; Firestore requires a composite index for any query combining an equality filter with an orderBy on a different field.",
+  "indexes": [
+    {
+      "comment": "Retailer order queue: one shop, optionally one status, newest first.",
+      "collectionGroup": "orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "shopId", "order": "ASCENDING" },
+        { "fieldPath": "orderStatus", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "comment": "Retailer order queue for a shop without a status filter.",
+      "collectionGroup": "orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "shopId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "comment": "Open delivery board: unassigned tasks, newest first.",
+      "collectionGroup": "deliveryTasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "comment": "A worker's own task history, newest first.",
+      "collectionGroup": "deliveryTasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "deliveryWorkerId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "comment": "Shop lookup by owner, used by the retailer portal.",
+      "collectionGroup": "shops",
+      "queryScope": "COLLECTION",
+      "fields": [{ "fieldPath": "ownerId", "order": "ASCENDING" }]
+    },
+    {
+      "comment": "Users holding a given capability. Single-field; listed for explicitness.",
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [{ "fieldPath": "capabilities", "order": "ASCENDING" }]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "comment": "Catalogue image refs can be long shared asset paths or Storage download URLs.",
+      "collectionGroup": "products",
+      "fieldPath": "imageSource.ref",
+      "indexes": []
+    }
+  ]
+}

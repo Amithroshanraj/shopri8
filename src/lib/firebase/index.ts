@@ -1,0 +1,106 @@
+/**
+ * Public entry point for the Firebase layer.
+ *
+ * Application code should import from `@/lib/firebase` rather than reaching
+ * into individual modules, so the internal file layout can change without
+ * touching callers.
+ */
+
+export {
+  FIREBASE_PROJECT_ID,
+  dataSourceMode,
+  firebaseClientConfig,
+  firebaseUnavailableReason,
+  getDb,
+  getFirebaseApp,
+  getFirebaseAuth,
+  getFirebaseStorage,
+  isBrowser,
+  isEmulatorRequested,
+  isFirebaseActive,
+  isFirebaseConfigured,
+  missingFirebaseKeys,
+  resetFirebaseClientsForTests,
+  type DataSourceMode,
+  type FirebaseClientConfig,
+} from "./config";
+
+export {
+  FirebaseBrowserOnlyError,
+  FirebaseNotConfiguredError,
+  changePassword,
+  confirmPhoneOtp,
+  getCurrentUser,
+  normalisePhoneE164,
+  registerWithEmail,
+  resetPassword,
+  setDisplayName,
+  signInWithEmail,
+  signOut,
+  startPhoneSignIn,
+  subscribeToAuth,
+  toUserCredentialResult,
+  type UserCredentialResult,
+} from "./auth";
+
+export {
+  COLLECTIONS,
+  addUserCapability,
+  claimDeliveryTask,
+  createDeliveryTask,
+  createOrder,
+  createPayment,
+  ensureUserProfile,
+  fetchAddress,
+  fetchAddresses,
+  fetchAvailableTasks,
+  fetchCategories,
+  fetchDeliveryTask,
+  fetchOrder,
+  fetchOrdersForCustomer,
+  fetchOrdersForShop,
+  fetchProduct,
+  fetchProductsByShop,
+  fetchPaymentsForOrder,
+  fetchShop,
+  fetchShopByOwner,
+  fetchShops,
+  fetchTasksForWorker,
+  fetchUser,
+  fetchUsersByCapability,
+  refPath,
+  removeAddress,
+  removeProduct,
+  removeUserCapability,
+  saveAddress,
+  saveCategory,
+  saveProduct,
+  saveShop,
+  stripUndefined,
+  transitionOrder,
+  updateAddress,
+  updateDeliveryTask,
+  updateOrder,
+  updatePayment,
+  updateProduct,
+  updateShop,
+  updateUserProfile,
+  type CollectionName,
+  type UserProfile,
+} from "./firestore";
+
+export {
+  FirebaseStorageUnavailableError,
+  deleteProductImage,
+  productImagePath,
+  productImageRef,
+  replaceProductImage,
+  uploadProductImage,
+} from "./storage";
+
+export {
+  connectAuth,
+  connectFirestore,
+  connectFirebaseEmulators,
+  connectStorage,
+} from "./emulator";

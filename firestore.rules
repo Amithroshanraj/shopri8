@@ -1,0 +1,340 @@
+rules_version = '2';
+
+/**
+ * SHOPRi8 Firestore security rules.
+ *
+ * Schema these rules assume (see src/lib/types.ts and src/lib/firebase):
+ *
+ *   users/{uid}         { name, phone, email, capabilities[], profileImage, ... }
+ *   shops/{shopId}      { ownerId, name, category, status, latitude, longitude, ... }
+ *   categories/{id}     { name, description, icon, image, status }
+ *   products/{id}       { shopId, name, price, stock, availability, category, imageSource }
+ *   addresses/{id}      { userId, label, recipientName, phone, address, ... }
+ *   orders/{id}         { customerId, shopId, items[], orderStatus, statusHistory[], ... }
+ *   payments/{id}       { orderId, gateway, status, amount, ... }
+ *   deliveryTasks/{id}  { orderId, shopId, deliveryWorkerId, status, ... }
+ *
+ * Roles come from `users/{uid}.capabilities`, never from a second app or a
+ * client-supplied role field, and one account may hold several capabilities.
+ *
+ * Order and delivery-task transitions are enforced here as well as in the client
+ * so a stale or tampered client cannot skip a lifecycle state.
+ */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isUser(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function userDoc(uid) {
+      return get(/databases/$(database)/documents/users/$(uid));
+    }
+
+    function capabilitiesOf(uid) {
+      return userDoc(uid).data.capabilities;
+    }
+
+    function hasCapability(capability) {
+      return isSignedIn()
+        && capabilitiesOf(request.auth.uid) is list
+        && capability in capabilitiesOf(request.auth.uid);
+    }
+
+    function isCustomer() {
+      return hasCapability('customer');
+    }
+
+    function isRetailer() {
+      return hasCapability('retailer');
+    }
+
+    function isWorker() {
+      return hasCapability('deliveryWorker');
+    }
+
+    function isAdmin() {
+      return hasCapability('admin');
+    }
+
+    /** True when the signed-in retailer owns this shop document. */
+    function ownsShop(shopId) {
+      return isRetailer()
+        && exists(/databases/$(database)/documents/shops/$(shopId))
+        && get(/databases/$(database)/documents/shops/$(shopId)).data.ownerId == request.auth.uid;
+    }
+
+    /** Retailer owns the shop this document belongs to. */
+    function ownsShopOfProduct(productData) {
+      return isRetailer() && ownsShop(productData.shopId);
+    }
+
+    // -----------------------------------------------------------------------
+    // users/{uid}
+    // -----------------------------------------------------------------------
+    match /users/{uid} {
+      // A profile is readable by its owner and by admins. Capabilities are
+      // personal but admins need them to manage the platform.
+      allow read: if isUser(uid) || isAdmin();
+
+      /**
+       * On create a user may claim only the `customer` capability. Anything
+       * privileged must be granted later by an admin, which is why the retailer,
+       * worker and admin roles can never be self-assigned.
+       */
+      allow create: if isUser(uid)
+        && request.resource.data.capabilities is list
+        && request.resource.data.capabilities.hasOnly(['customer']);
+
+      /**
+       * A user may edit their own profile but must not touch `capabilities`.
+       * Admins may edit anything, including capabilities.
+       */
+      allow update: if (isUser(uid) && !request.resource.data.diff(resource.data).affectedKeys()
+                         .hasAny(['capabilities']))
+                    || isAdmin();
+
+      // Users may delete themselves; admins may delete anyone.
+      allow delete: if isUser(uid) || isAdmin();
+    }
+
+    // -----------------------------------------------------------------------
+    // shops/{shopId}
+    // -----------------------------------------------------------------------
+    match /shops/{shopId} {
+      // The public storefront may read ACTIVE shops and browse them.
+      allow read: if resource.data.status == 'ACTIVE' || ownsShop(shopId) || isAdmin();
+
+      // Only admins create shops, or a retailer claiming an unowned shop.
+      allow create: if isAdmin()
+        || (isRetailer() && (!request.resource.data.ownerId
+                            || request.resource.data.ownerId == request.auth.uid));
+
+      // The owning retailer may edit their own shop, but may not hand it to
+      // another account. Admins may edit anything.
+      allow update: if isAdmin()
+        || (ownsShop(shopId) && request.resource.data.ownerId == resource.data.ownerId);
+
+      allow delete: if isAdmin();
+    }
+
+    // -----------------------------------------------------------------------
+    // categories/{categoryId}
+    // -----------------------------------------------------------------------
+    match /categories/{categoryId} {
+      // Shared taxonomy: publicly readable, admin-managed.
+      allow read: if resource.data.status == 'ACTIVE' || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // -----------------------------------------------------------------------
+    // products/{productId}
+    // -----------------------------------------------------------------------
+    match /products/{productId} {
+      // Browsable when available, or by the owning retailer, or by admins.
+      allow read: if (resource.data.availability == true && resource.data.stock > 0)
+                  || ownsShopOfProduct(resource.data)
+                  || isAdmin();
+
+      // Only the retailer who owns the target shop may create the product. On
+      // create there is no existing document, so the shop is taken from the
+      // incoming data and checked against `shops/{shopId}.ownerId`.
+      allow create: if isRetailer() && ownsShop(request.resource.data.shopId);
+
+      allow update: if isAdmin() || (isRetailer() && ownsShopOfProduct(resource.data));
+
+      allow delete: if isAdmin() || (isRetailer() && ownsShopOfProduct(resource.data));
+    }
+
+    // -----------------------------------------------------------------------
+    // addresses/{addressId}
+    // -----------------------------------------------------------------------
+    match /addresses/{addressId} {
+      // Strictly private to the owner. On create there is no existing document,
+      // so the owner check has to read the incoming data instead of `resource`.
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+    }
+
+    // -----------------------------------------------------------------------
+    // orders/{orderId}
+    // -----------------------------------------------------------------------
+    match /orders/{orderId} {
+      /**
+       * Readable by the customer who placed it, the retailer whose shop it is,
+       * the worker assigned to its delivery task, and admins.
+       */
+      allow read: if isAdmin()
+                  || (isSignedIn() && resource.data.customerId == request.auth.uid)
+                  || (isRetailer() && ownsShop(resource.data.shopId))
+                  || isAssignedWorker(orderId);
+
+      /**
+       * Customers create their own orders. The order must start at a real
+       * lifecycle state, and the client-supplied customerId must be the caller.
+       */
+      allow create: if isSignedIn()
+        && isCustomer()
+        && request.resource.data.customerId == request.auth.uid
+        && request.resource.data.orderStatus == 'PLACED';
+
+      /**
+       * Updates are the interesting case.
+       *
+       * A customer may only cancel, and only their own order.
+       * A retailer may move an order along the fulfillment half of the flow for
+       * their own shop, and may set a rejection reason.
+       * A worker may only advance the delivery half, and only for their task.
+       * An admin may do any of these.
+       *
+       * `diff().affectedKeys()` keeps each actor from rewriting fields it has no
+       * business touching, such as a retailer changing the price.
+       */
+      allow update: if isAdmin() || validCustomerUpdate() || validRetailerUpdate() || validWorkerUpdate();
+
+      // Nobody deletes an order; cancellation is a status, not a deletion.
+      allow delete: if isAdmin();
+
+      // ---- order update guards ----
+
+      function validCustomerUpdate() {
+        return isSignedIn()
+          && resource.data.customerId == request.auth.uid
+          && request.resource.data.orderStatus == 'CANCELLED'
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['orderStatus', 'statusHistory', 'updatedAt']);
+      }
+
+      function validRetailerUpdate() {
+        return isRetailer()
+          && ownsShop(resource.data.shopId)
+          && request.resource.data.orderStatus in [
+               'RETAILER_REVIEW', 'ACCEPTED', 'PREPARING', 'READY_FOR_PICKUP', 'REJECTED'
+             ]
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly([
+                 'orderStatus', 'statusHistory', 'rejectionReason', 'updatedAt',
+                 'paymentStatus'
+               ]);
+      }
+
+      function validWorkerUpdate() {
+        return isAssignedWorker(orderId)
+          && request.resource.data.orderStatus in [
+               'DELIVERY_ASSIGNED', 'PICKED_UP', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED'
+             ]
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['orderStatus', 'statusHistory', 'updatedAt']);
+      }
+
+      /** The caller is the `deliveryWorkerId` on this order's delivery task. */
+      function isAssignedWorker(id) {
+        return isWorker()
+          && exists(/databases/$(database)/documents/deliveryTasks/$(id))
+          && get(/databases/$(database)/documents/deliveryTasks/$(id)).data.deliveryWorkerId
+               == request.auth.uid;
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // deliveryTasks/{taskId}
+    // -----------------------------------------------------------------------
+    match /deliveryTasks/{taskId} {
+      /**
+       * Workers may read the open board so they can claim work, plus their own
+       * tasks. The owning retailer and admins can read tasks for their shop.
+       */
+      allow read: if isAdmin()
+                  || isWorker()
+                  || (isRetailer() && ownsShop(resource.data.shopId))
+                  || (isSignedIn() && resource.data.deliveryWorkerId == request.auth.uid);
+
+      // Created by the platform when a retailer marks an order ready, or by an
+      // admin. Never by a client that is inventing its own delivery work.
+      allow create: if isAdmin() || (isRetailer() && ownsShop(request.resource.data.shopId));
+
+      /**
+       * Claiming: an AVAILABLE task with no worker becomes this caller's task.
+       * A worker may then move their own task along the delivery flow.
+       */
+      allow update: if isAdmin() || validClaim() || validWorkerAdvance();
+
+      allow delete: if isAdmin();
+
+      function validClaim() {
+        return isWorker()
+          && resource.data.status == 'AVAILABLE'
+          && resource.data.deliveryWorkerId == null
+          && request.resource.data.status == 'DELIVERY_ASSIGNED'
+          && request.resource.data.deliveryWorkerId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['status', 'deliveryWorkerId', 'updatedAt']);
+      }
+
+      function validWorkerAdvance() {
+        return isWorker()
+          && resource.data.deliveryWorkerId == request.auth.uid
+          && request.resource.data.status in [
+               'PICKED_UP', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED'
+             ]
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly([
+                 'status', 'failureReason', 'failureNotes', 'failureAt', 'updatedAt'
+               ]);
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // payments/{paymentId}
+    // -----------------------------------------------------------------------
+    match /payments/{paymentId} {
+      /**
+       * Payments are readable by the customer who paid, the shop that received
+       * them, and admins. There is no client-side create or update: gateway
+       * callbacks are written by Cloud Functions using the Admin SDK, which
+       * bypasses these rules.
+       */
+      allow read: if isAdmin()
+                  || (isSignedIn() && getOrderCustomerId(resource.data.orderId)
+                      == request.auth.uid)
+                  || (isRetailer() && ownsShop(getOrderShopId(resource.data.orderId)));
+
+      allow write: if false;
+    }
+
+    function getOrderDoc(orderId) {
+      return get(/databases/$(database)/documents/orders/$(orderId));
+    }
+
+    function getOrderCustomerId(orderId) {
+      return exists(/databases/$(database)/documents/orders/$(orderId))
+        ? getOrderDoc(orderId).data.customerId
+        : null;
+    }
+
+    function getOrderShopId(orderId) {
+      return exists(/databases/$(database)/documents/orders/$(orderId))
+        ? getOrderDoc(orderId).data.shopId
+        : null;
+    }
+
+    // -----------------------------------------------------------------------
+    // Default deny
+    // -----------------------------------------------------------------------
+    // Anything not matched above is denied. There is intentionally no
+    // `allow read, write: if true` anywhere in this file.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

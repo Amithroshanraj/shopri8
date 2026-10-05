@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Product } from "./types";
+import { STANDARD_DELIVERY_FEE } from "./types";
 
 export interface CartLine {
   productId: string;
@@ -28,7 +29,7 @@ interface CartState {
 const EMPTY: CartState = { shopId: null, shopName: null, lines: [] };
 const STORAGE_KEY = "shopri8.cart.v1";
 
-export const DELIVERY_FEE = 29;
+export const DELIVERY_FEE = STANDARD_DELIVERY_FEE;
 
 interface CartContextValue extends CartState {
   itemCount: number;

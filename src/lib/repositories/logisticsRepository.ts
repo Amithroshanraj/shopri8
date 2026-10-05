@@ -7,24 +7,41 @@
  */
 
 import {
-  createDeliveryTask,
-  createPayment,
+  assignDeliveryTask,
   claimDeliveryTask,
   fetchAddress,
   fetchAddresses,
   fetchAvailableTasks,
+  fetchAllDeliveryTasks,
   fetchDeliveryTask,
   fetchPaymentsForOrder,
   fetchTasksForWorker,
   isFirebaseActive,
+  subscribeToAllDeliveryTasks,
+  subscribeToAvailableTasks,
+  subscribeToTasksForWorker,
   removeAddress,
   saveAddress,
   updateAddress,
   updateDeliveryTask,
-  updatePayment,
 } from "../firebase";
 import type { Address, DeliveryTask, DeliveryTaskStatus, OrderStatus, Payment } from "../types";
+import type { Unsubscribe } from "firebase/firestore";
 import { repositoryFailed, runWhenActive, type RepositoryResult } from "./types";
+
+function safeDeliveryResult<T>(result: RepositoryResult<T>, fallback: string): RepositoryResult<T> {
+  if (result.ok) return result;
+  if (/permission|unauthenticated|not authorized/i.test(result.message)) {
+    return { ...result, message: "You are not authorized to perform this delivery action." };
+  }
+  if (/unavailable|network|deadline-exceeded/i.test(result.message)) {
+    return { ...result, message: "Could not reach the delivery service. Check your connection." };
+  }
+  if (/already been claimed|no longer available|aborted/i.test(result.message)) {
+    return { ...result, message: "Task is no longer available." };
+  }
+  return { ...result, message: result.message || fallback };
+}
 
 export const addressRepository = {
   async listForUser(userId: string): Promise<RepositoryResult<Address[]>> {
@@ -75,8 +92,8 @@ export const addressRepository = {
 export const DELIVERY_TASK_TRANSITIONS: Partial<Record<DeliveryTaskStatus, DeliveryTaskStatus[]>> =
   {
     AVAILABLE: ["DELIVERY_ASSIGNED"],
-    DELIVERY_ASSIGNED: ["PICKED_UP", "DELIVERY_FAILED"],
-    PICKED_UP: ["OUT_FOR_DELIVERY", "DELIVERY_FAILED"],
+    DELIVERY_ASSIGNED: ["PICKED_UP"],
+    PICKED_UP: ["OUT_FOR_DELIVERY"],
     OUT_FOR_DELIVERY: ["DELIVERED", "DELIVERY_FAILED"],
   };
 
@@ -100,6 +117,13 @@ export const ORDER_STATUS_FROM_TASK: Partial<Record<DeliveryTaskStatus, OrderSta
 };
 
 export const deliveryRepository = {
+  async listAll(): Promise<RepositoryResult<DeliveryTask[]>> {
+    return runWhenActive(
+      isFirebaseActive,
+      () => fetchAllDeliveryTasks(),
+      "Could not load delivery tasks.",
+    );
+  },
   /** The open task board any worker may claim from. */
   async listAvailable(): Promise<RepositoryResult<DeliveryTask[]>> {
     return runWhenActive(
@@ -115,6 +139,28 @@ export const deliveryRepository = {
       () => fetchTasksForWorker(deliveryWorkerId),
       "Could not load your tasks.",
     );
+  },
+
+  subscribeAll(
+    onNext: (tasks: DeliveryTask[]) => void,
+    onError: (error: Error) => void,
+  ): Unsubscribe {
+    return subscribeToAllDeliveryTasks(onNext, onError);
+  },
+
+  subscribeAvailable(
+    onNext: (tasks: DeliveryTask[]) => void,
+    onError: (error: Error) => void,
+  ): Unsubscribe {
+    return subscribeToAvailableTasks(onNext, onError);
+  },
+
+  subscribeForWorker(
+    workerId: string,
+    onNext: (tasks: DeliveryTask[]) => void,
+    onError: (error: Error) => void,
+  ): Unsubscribe {
+    return subscribeToTasksForWorker(workerId, onNext, onError);
   },
 
   async get(taskId: string): Promise<RepositoryResult<DeliveryTask | null>> {
@@ -133,10 +179,24 @@ export const deliveryRepository = {
    * `deliveryWorker` capability.
    */
   async claim(taskId: string, deliveryWorkerId: string): Promise<RepositoryResult<void>> {
-    return runWhenActive(
-      isFirebaseActive,
-      () => claimDeliveryTask(taskId, deliveryWorkerId),
+    return safeDeliveryResult(
+      await runWhenActive(
+        isFirebaseActive,
+        () => claimDeliveryTask(taskId, deliveryWorkerId),
+        "Could not claim that task.",
+      ),
       "Could not claim that task.",
+    );
+  },
+
+  async assign(taskId: string, deliveryWorkerId: string): Promise<RepositoryResult<void>> {
+    return safeDeliveryResult(
+      await runWhenActive(
+        isFirebaseActive,
+        () => assignDeliveryTask(taskId, deliveryWorkerId),
+        "Could not assign that delivery task.",
+      ),
+      "Could not assign that delivery task.",
     );
   },
 
@@ -152,20 +212,13 @@ export const deliveryRepository = {
         "That task cannot move to that status.",
       );
     }
-    return runWhenActive(
-      isFirebaseActive,
-      () => updateDeliveryTask(task.id, { ...patch, status: nextStatus }),
+    return safeDeliveryResult(
+      await runWhenActive(
+        isFirebaseActive,
+        () => updateDeliveryTask(task.id, { ...patch, status: nextStatus }),
+        "Could not update that task.",
+      ),
       "Could not update that task.",
-    );
-  },
-
-  async create(
-    task: Omit<DeliveryTask, "id" | "createdAt" | "updatedAt"> & { id?: string },
-  ): Promise<RepositoryResult<string>> {
-    return runWhenActive(
-      isFirebaseActive,
-      () => createDeliveryTask(task),
-      "Could not create that task.",
     );
   },
 };
@@ -176,30 +229,6 @@ export const paymentRepository = {
       isFirebaseActive,
       () => fetchPaymentsForOrder(orderId),
       "Could not load payments for that order.",
-    );
-  },
-
-  /**
-   * Records a payment attempt.
-   *
-   * Only gateway identifiers are stored. Cashfree secret keys must never be
-   * passed here — signature generation belongs in Cloud Functions.
-   */
-  async record(
-    payment: Omit<Payment, "id" | "createdAt" | "updatedAt"> & { id?: string },
-  ): Promise<RepositoryResult<string>> {
-    return runWhenActive(
-      isFirebaseActive,
-      () => createPayment(payment),
-      "Could not record that payment.",
-    );
-  },
-
-  async update(paymentId: string, patch: Partial<Payment>): Promise<RepositoryResult<void>> {
-    return runWhenActive(
-      isFirebaseActive,
-      () => updatePayment(paymentId, patch),
-      "Could not update that payment.",
     );
   },
 };

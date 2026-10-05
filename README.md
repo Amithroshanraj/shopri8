@@ -54,3 +54,30 @@ npm run build
 # Preview production build
 npm run preview
 ```
+
+### UPI / QR Demo Payment
+
+SHOPRi8 currently uses a **UPI / QR Demo Payment** flow for academic
+demonstration. No real money is processed. The QR code contains only harmless
+SHOPRi8 demo text, the order ID, the server-derived amount, and a no-real-payment
+marker. It is not a UPI payment intent and does not open any banking app.
+
+In Firebase mode, checkout sends product IDs, quantities, shop, saved address,
+and an idempotency key to the existing `src/server.ts` Worker entrypoint. The
+trusted server verifies Firebase Authentication and the customer capability,
+re-reads prices and availability from Firestore, and creates the order and
+pending payment record in one transaction. Confirming the simulated payment
+uses a second trusted transaction to verify ownership, payability, and matching
+server-stored order/payment amounts before atomically marking payment `SUCCESS`
+and order `PAID`. Duplicate confirmation is safe. Retailer order processing
+remains locked until that confirmation; COD uses the existing checkout and
+order lifecycle unchanged.
+
+Configure the Worker variables in `.env.example` for Firebase Auth/Firestore
+access: `FIREBASE_PROJECT_ID`, `FIREBASE_WEB_API_KEY`,
+`FIREBASE_SERVICE_ACCOUNT_EMAIL`, and `FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY`.
+The service-account private key must be a Worker secret; the
+service identity should have only the Firestore access needed by the payment
+backend (for example, `roles/datastore.user`). Never put server credentials in
+`VITE_*` variables, source control, or Firestore. No payment gateway, merchant
+account, webhook, or payment-provider credentials are required.

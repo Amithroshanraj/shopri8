@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DEFAULT_DEMO_WORKER } from "@/lib/workerAuth";
 import { DEMO_WORKER_ID } from "@/data/worker";
 import { PRODUCTS, SHOPS } from "@/data/demo";
@@ -8,11 +8,20 @@ import { useRetailerStore } from "@/lib/retailerStore";
 import { useWorkerStore } from "@/lib/workerStore";
 import type { DeliveryTask, Order, Product, Shop } from "@/lib/types";
 import { useAllProducts, useAllShops, catalogQueryKeys } from "@/hooks/useCatalog";
-import { isFirebaseActive } from "@/lib/firebase";
-import { productRepository, shopRepository } from "@/lib/repositories";
+import { isBrowser, isFirebaseActive } from "@/lib/firebase";
+import {
+  deliveryRepository,
+  orderRepository,
+  productRepository,
+  shopRepository,
+  userRepository,
+} from "@/lib/repositories";
 
 const CONTROLS_STORAGE_KEY = "shopri8.admin.controls.v1";
 const CONTROLS_UPDATED_EVENT = "shopri8:admin-controls-updated";
+const ADMIN_ORDERS_QUERY_KEY = ["orders", "admin"] as const;
+const ADMIN_TASKS_QUERY_KEY = ["delivery-tasks", "admin"] as const;
+const ADMIN_WORKERS_QUERY_KEY = ["users", "capability", "delivery_worker"] as const;
 
 export type ManagedStatus = "ACTIVE" | "INACTIVE";
 export type ManagedRole = "Customer" | "Retailer" | "Delivery Worker" | "Admin";
@@ -32,6 +41,7 @@ export interface ManagedUser {
   phone: string;
   role: ManagedRole;
   status: ManagedStatus;
+  available?: boolean;
   createdAt?: string;
 }
 
@@ -108,21 +118,86 @@ function mergeShopCatalog(base: Shop[], retailerShop: Shop | null): Shop[] {
 export function useAdminData() {
   const queryClient = useQueryClient();
   const firebaseMode = isFirebaseActive;
-  const firebaseShops = useAllShops(firebaseMode);
-  const firebaseProducts = useAllProducts(firebaseMode);
+  const firebaseEnabled = firebaseMode && isBrowser;
+  const [firebaseLiveError, setFirebaseLiveError] = useState<string | null>(null);
+  const firebaseShops = useAllShops(firebaseEnabled);
+  const firebaseProducts = useAllProducts(firebaseEnabled);
+  const firebaseOrders = useQuery({
+    queryKey: ADMIN_ORDERS_QUERY_KEY,
+    queryFn: async () => {
+      const result = await orderRepository.listAll();
+      if (!result.ok) throw new Error(result.message);
+      return result.data;
+    },
+    enabled: firebaseEnabled,
+  });
+  const firebaseTasks = useQuery({
+    queryKey: ADMIN_TASKS_QUERY_KEY,
+    queryFn: async () => {
+      const result = await deliveryRepository.listAll();
+      if (!result.ok) throw new Error(result.message);
+      return result.data;
+    },
+    enabled: firebaseEnabled,
+  });
+  const firebaseDeliveryWorkers = useQuery({
+    queryKey: ADMIN_WORKERS_QUERY_KEY,
+    queryFn: async () => {
+      const result = await userRepository.listByCapability("delivery_worker");
+      if (!result.ok) throw new Error(result.message);
+      return result.data;
+    },
+    enabled: firebaseEnabled,
+  });
+  useEffect(() => {
+    setFirebaseLiveError(null);
+    if (!firebaseEnabled) return;
+    const unsubscribeOrders = orderRepository.subscribeAll(
+      (orders) => {
+        setFirebaseLiveError(null);
+        void queryClient.cancelQueries({ queryKey: ADMIN_ORDERS_QUERY_KEY, exact: true });
+        queryClient.setQueryData(ADMIN_ORDERS_QUERY_KEY, orders);
+      },
+      (error) => setFirebaseLiveError(error.message),
+    );
+    const unsubscribeTasks = deliveryRepository.subscribeAll(
+      (tasks) => {
+        setFirebaseLiveError(null);
+        void queryClient.cancelQueries({ queryKey: ADMIN_TASKS_QUERY_KEY, exact: true });
+        queryClient.setQueryData(ADMIN_TASKS_QUERY_KEY, tasks);
+      },
+      (error) => setFirebaseLiveError(error.message),
+    );
+    const unsubscribeWorkers = userRepository.subscribeByCapability(
+      "delivery_worker",
+      (workers) => {
+        setFirebaseLiveError(null);
+        void queryClient.cancelQueries({ queryKey: ADMIN_WORKERS_QUERY_KEY, exact: true });
+        queryClient.setQueryData(ADMIN_WORKERS_QUERY_KEY, workers);
+      },
+      (error) => setFirebaseLiveError(error.message),
+    );
+    return () => {
+      unsubscribeOrders();
+      unsubscribeTasks();
+      unsubscribeWorkers();
+    };
+  }, [firebaseEnabled, queryClient]);
   const customerStore = useOrders();
   const retailerStore = useRetailerStore();
   const workerStore = useWorkerStore();
   const controlsState = useAdminControls();
 
-  const orders = newestOrderPerId(customerStore.orders, retailerStore.orders, workerStore.orders);
+  const orders = firebaseMode
+    ? (firebaseOrders.data ?? [])
+    : newestOrderPerId(customerStore.orders, retailerStore.orders, workerStore.orders);
   const shops = firebaseMode
     ? (firebaseShops.data ?? [])
     : mergeShopCatalog(SHOPS, retailerStore.shop);
   const products = firebaseMode
     ? (firebaseProducts.data ?? [])
     : mergeById(PRODUCTS, retailerStore.products);
-  const tasks = workerStore.tasks;
+  const tasks = firebaseMode ? (firebaseTasks.data ?? []) : workerStore.tasks;
 
   const customers = new Map<string, ManagedUser>();
   for (const order of orders) {
@@ -159,7 +234,7 @@ export function useAdminData() {
   for (const task of tasks) {
     if (task.deliveryWorkerId) workerIds.add(task.deliveryWorkerId);
   }
-  const workers: ManagedUser[] = [...workerIds].map((id) => ({
+  const demoWorkers: ManagedUser[] = [...workerIds].map((id) => ({
     id,
     name: id === DEMO_WORKER_ID ? DEFAULT_DEMO_WORKER.displayName : "Delivery Worker",
     email: id === DEMO_WORKER_ID ? DEFAULT_DEMO_WORKER.email : "",
@@ -167,6 +242,26 @@ export function useAdminData() {
     role: "Delivery Worker",
     status: controlsState.controls.userStatus[id] ?? "ACTIVE",
   }));
+  const workers: ManagedUser[] = firebaseMode
+    ? (firebaseDeliveryWorkers.data ?? []).map((profile) => ({
+        id: profile.uid,
+        name: profile.displayName || "Delivery Worker",
+        email: profile.email ?? "",
+        phone: profile.phoneNumber ?? "",
+        role: "Delivery Worker",
+        status: profile.status === "active" ? "ACTIVE" : "INACTIVE",
+        available: profile.available !== false,
+      }))
+    : demoWorkers;
+  const assignDeliveryTask = async (taskId: string, workerId: string): Promise<void> => {
+    if (!firebaseMode) throw new Error("Admin assignment is available only in Firebase mode.");
+    const result = await deliveryRepository.assign(taskId, workerId);
+    if (!result.ok) throw new Error(result.message);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ADMIN_TASKS_QUERY_KEY }),
+      queryClient.invalidateQueries({ queryKey: ADMIN_ORDERS_QUERY_KEY }),
+    ]);
+  };
 
   const users = [...customers.values(), ...retailersById.values(), ...workers].map((user) => ({
     ...user,
@@ -249,13 +344,20 @@ export function useAdminData() {
     controlsReady: firebaseMode
       ? firebaseShops.isSuccess && firebaseProducts.isSuccess
       : controlsState.ready,
-    error: firebaseShops.error?.message ?? firebaseProducts.error?.message ?? null,
+    error:
+      firebaseShops.error?.message ??
+      firebaseProducts.error?.message ??
+      firebaseOrders.error?.message ??
+      firebaseTasks.error?.message ??
+      firebaseDeliveryWorkers.error?.message ??
+      firebaseLiveError,
     firebaseMode,
     updateControls: controlsState.update,
     users,
     customers: users.filter((user) => user.role === "Customer"),
     retailers: [...retailersById.values()],
     workers,
+    assignDeliveryTask,
     shops: shops.map((shop) => ({
       ...shop,
       status: controls.shopStatus[shop.id] ?? shop.status,
@@ -263,12 +365,13 @@ export function useAdminData() {
     products: normalizedProducts,
     orders,
     tasks: normalizedTasks,
-    loading:
-      !customerStore.ready ||
-      workerStore.loading ||
-      (firebaseMode
-        ? firebaseShops.isPending || firebaseProducts.isPending
-        : retailerStore.loading),
+    loading: firebaseMode
+      ? firebaseShops.isPending ||
+        firebaseProducts.isPending ||
+        firebaseOrders.isPending ||
+        firebaseTasks.isPending ||
+        firebaseDeliveryWorkers.isPending
+      : !customerStore.ready || workerStore.loading || retailerStore.loading,
     updateRetailerShop: retailerStore.updateShop,
     updateProduct,
     updateShop,

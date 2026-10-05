@@ -15,10 +15,14 @@ import {
   isFirebaseActive,
   removeUserCapability,
   setUserAccountStatus,
+  setWorkerAvailability,
+  subscribeToUsersByCapability,
+  subscribeToUser,
   updateUserProfile,
   type UserProfile,
 } from "../firebase";
 import type { AccountStatus, Capability } from "../types";
+import type { Unsubscribe } from "firebase/firestore";
 import { runWhenActive, type RepositoryResult } from "./types";
 
 export const userRepository = {
@@ -35,6 +39,14 @@ export const userRepository = {
 
   getUserProfile(uid: string) {
     return userRepository.get(uid);
+  },
+
+  subscribe(
+    uid: string,
+    onNext: (profile: UserProfile | null) => void,
+    onError: (error: Error) => void,
+  ): Unsubscribe {
+    return subscribeToUser(uid, onNext, onError);
   },
 
   async createUserProfile(
@@ -152,6 +164,14 @@ export const userRepository = {
     );
   },
 
+  async setWorkerAvailability(uid: string, available: boolean): Promise<RepositoryResult<void>> {
+    return runWhenActive(
+      isFirebaseActive,
+      () => setWorkerAvailability(uid, available),
+      "Could not update worker availability.",
+    );
+  },
+
   /** Grants a capability. Admin-only in practice; enforced by the security rules. */
   async grantCapability(uid: string, capability: Capability): Promise<RepositoryResult<void>> {
     return runWhenActive(
@@ -175,6 +195,14 @@ export const userRepository = {
       () => fetchUsersByCapability(capability),
       "Could not load users.",
     );
+  },
+
+  subscribeByCapability(
+    capability: Capability,
+    onNext: (profiles: UserProfile[]) => void,
+    onError: (error: Error) => void,
+  ): Unsubscribe {
+    return subscribeToUsersByCapability(capability, onNext, onError);
   },
 
   /** Grants several capabilities in one call. */

@@ -12,6 +12,7 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import { SHOP_BY_ID } from "@/data/demo";
+import { isFirebaseActive } from "@/lib/firebase";
 import { formatPrice } from "@/lib/geo";
 import { useWorkerAuth } from "@/lib/workerAuth";
 import { useWorkerStore } from "@/lib/workerStore";
@@ -86,9 +87,12 @@ function WorkerTaskDetails() {
     );
   }
 
-  const shop = SHOP_BY_ID[task.shopId];
+  const shop = isFirebaseActive ? undefined : SHOP_BY_ID[task.shopId];
+  const pickupAddress = isFirebaseActive
+    ? `Pickup coordinates: ${task.pickupLocation.latitude.toFixed(5)}, ${task.pickupLocation.longitude.toFixed(5)}`
+    : (shop?.address ?? "Pickup address unavailable");
   const itemCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
-  const isActive = ["DELIVERY_ASSIGNED", "PICKED_UP", "OUT_FOR_DELIVERY"].includes(task.status);
+  const canReportFailure = task.status === "OUT_FOR_DELIVERY";
   const actionForStatus: Partial<
     Record<DeliveryTaskStatus, { status: DeliveryTaskStatus; label: string }>
   > = {
@@ -99,37 +103,44 @@ function WorkerTaskDetails() {
   };
   const primaryAction = actionForStatus[task.status];
 
-  const confirmAction = () => {
+  const confirmAction = async () => {
     if (!pendingAction || !user) return;
     setSubmitting(true);
-    const succeeded = transitionTask(
-      task.id,
-      pendingAction,
-      user.workerId,
-      pendingAction === "DELIVERY_FAILED"
-        ? { reason: failureReason, notes: failureNotes }
-        : undefined,
-    );
-    setSubmitting(false);
-    if (!succeeded) {
-      toast.error("This task can no longer be updated", {
-        description: "Check the latest order status and task assignment.",
-      });
+    try {
+      const succeeded = await transitionTask(
+        task.id,
+        pendingAction,
+        user.workerId,
+        pendingAction === "DELIVERY_FAILED"
+          ? { reason: failureReason, notes: failureNotes }
+          : undefined,
+      );
+      if (!succeeded) {
+        toast.error("This task can no longer be updated", {
+          description: "Check the latest order status and task assignment.",
+        });
+        setPendingAction(null);
+        return;
+      }
+      toast.success(
+        pendingAction === "DELIVERY_ASSIGNED"
+          ? "Delivery accepted"
+          : pendingAction === "PICKED_UP"
+            ? "Pickup confirmed"
+            : pendingAction === "OUT_FOR_DELIVERY"
+              ? "Delivery started"
+              : pendingAction === "DELIVERED"
+                ? "Delivery completed successfully"
+                : "Delivery issue reported",
+      );
       setPendingAction(null);
-      return;
+    } catch (error) {
+      toast.error("Could not update delivery task", {
+        description: error instanceof Error ? error.message : "Refresh the task and try again.",
+      });
+    } finally {
+      setSubmitting(false);
     }
-    toast.success(
-      pendingAction === "DELIVERY_ASSIGNED"
-        ? "Delivery accepted"
-        : pendingAction === "PICKED_UP"
-          ? "Pickup confirmed"
-          : pendingAction === "OUT_FOR_DELIVERY"
-            ? "Delivery started"
-            : pendingAction === "DELIVERED"
-              ? "Delivery completed successfully"
-              : "Delivery issue reported",
-    );
-    setPendingAction(null);
   };
 
   const dialogTitle =
@@ -182,9 +193,7 @@ function WorkerTaskDetails() {
             <h2 className="font-display text-base font-semibold">Pickup</h2>
           </div>
           <p className="mt-4 text-sm font-semibold">{shop?.name ?? order.shopName}</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {shop?.address ?? "Pickup address unavailable"}
-          </p>
+          <p className="mt-1 text-sm text-muted-foreground">{pickupAddress}</p>
           <p className="mt-3 rounded-xl bg-background/60 p-3 text-xs text-muted-foreground">
             Pickup status:{" "}
             {task.status === "AVAILABLE"
@@ -282,7 +291,7 @@ function WorkerTaskDetails() {
             >
               {primaryAction.label}
             </button>
-            {isActive && (
+            {canReportFailure && (
               <button
                 type="button"
                 onClick={() => setPendingAction("DELIVERY_FAILED")}
@@ -332,9 +341,7 @@ function WorkerTaskDetails() {
               <p className="mt-1 text-xs text-muted-foreground">
                 Order {order.id} · {order.shopName}
               </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Pickup: {shop?.address ?? "Pickup address unavailable"}
-              </p>
+              <p className="mt-1 text-xs text-muted-foreground">Pickup: {pickupAddress}</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Drop: {order.deliveryAddress.address}
               </p>

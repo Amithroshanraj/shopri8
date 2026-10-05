@@ -77,12 +77,13 @@ function encodeFields(fields) {
   );
 }
 
-async function requestJson(url, token, options = {}) {
+async function requestJson(url, token, project, options = {}) {
   const response = await fetch(url, {
     ...options,
     headers: {
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
+      "x-goog-user-project": project,
       ...options.headers,
     },
   });
@@ -105,6 +106,7 @@ async function lookupAuthUser(token, project, options) {
   const result = await requestJson(
     `https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(project)}/accounts:lookup`,
     token,
+    project,
     { method: "POST", body: JSON.stringify(body) },
   );
   const users = result.users ?? [];
@@ -116,7 +118,12 @@ async function lookupAuthUser(token, project, options) {
 
 async function readProfile(token, project, uid) {
   const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(project)}/databases/(default)/documents/users/${encodeURIComponent(uid)}`;
-  const response = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+  const response = await fetch(url, {
+    headers: {
+      authorization: `Bearer ${token}`,
+      "x-goog-user-project": project,
+    },
+  });
   if (response.status === 404) return { url, profile: null };
   const text = await response.text();
   let body;
@@ -150,7 +157,14 @@ async function main() {
     throw new Error("--email must be a valid email address.");
   }
 
-  const auth = new GoogleAuth({ scopes: [AUTH_SCOPE, FIRESTORE_SCOPE] });
+  process.env.GOOGLE_CLOUD_PROJECT ??= project;
+  process.env.GOOGLE_CLOUD_QUOTA_PROJECT ??= project;
+
+  const auth = new GoogleAuth({
+    projectId: project,
+    quotaProjectId: project,
+    scopes: [AUTH_SCOPE, FIRESTORE_SCOPE],
+  });
   const client = await auth.getClient();
   const tokenResult = await client.getAccessToken();
   const token = typeof tokenResult === "string" ? tokenResult : tokenResult?.token;
@@ -181,7 +195,7 @@ async function main() {
       ...(authUser.phoneNumber ? { phoneNumber: authUser.phoneNumber } : {}),
       ...(authUser.photoUrl ? { photoURL: authUser.photoUrl } : {}),
     };
-    await requestJson(`${url}?currentDocument.exists=false`, token, {
+    await requestJson(`${url}?currentDocument.exists=false`, token, project, {
       method: "PATCH",
       body: JSON.stringify({ fields: encodeFields(fields) }),
     });
@@ -230,7 +244,7 @@ async function main() {
     };
     const query = new URLSearchParams();
     for (const field of Object.keys(fields)) query.append("updateMask.fieldPaths", field);
-    await requestJson(`${url}?${query}`, token, {
+    await requestJson(`${url}?${query}`, token, project, {
       method: "PATCH",
       body: JSON.stringify({ fields: encodeFields(fields) }),
     });

@@ -14,7 +14,7 @@
  *   products       one document per product, `shopId` -> shops/{id}
  *   addresses      one document per saved delivery address
  *   orders         one document per order, `customerId` + `shopId` references
- *   payments       one document per payment attempt (Cashfree / COD)
+ *   payments       one trusted payment record for a demo payment
  *   deliveryTasks  one document per delivery job, `orderId` + `deliveryWorkerId`
  *
  * The order lifecycle is SHOPRi8's own and is defined once in `src/lib/types.ts`
@@ -33,6 +33,7 @@ import {
   getDoc,
   getDocs,
   limit,
+  onSnapshot,
   orderBy,
   query,
   runTransaction,
@@ -40,10 +41,10 @@ import {
   setDoc,
   updateDoc,
   where,
-  writeBatch,
   type DocumentData,
   type QueryConstraint,
   type Timestamp,
+  type Unsubscribe,
 } from "firebase/firestore";
 import { getDb } from "./config";
 import type {
@@ -62,6 +63,7 @@ import type {
   RetailerApplicationStatus,
   Shop,
 } from "../types";
+import { STANDARD_DELIVERY_FEE } from "../types";
 import { canonicalCapabilities } from "../auth/types";
 
 export const COLLECTIONS = {
@@ -103,6 +105,40 @@ function requireDb() {
 
 function mapDoc<T>(snapshot: { id: string; data: () => DocumentData }): T {
   return { id: snapshot.id, ...snapshot.data() } as T;
+}
+
+function mapOrderDoc(snapshot: { id: string; data: () => DocumentData }): Order {
+  const data = snapshot.data();
+  return {
+    ...data,
+    id: snapshot.id,
+    createdAt: timestampToIso(data["createdAt"]) ?? "",
+    updatedAt: timestampToIso(data["updatedAt"]) ?? "",
+  } as Order;
+}
+
+function mapDeliveryTaskDoc(snapshot: { id: string; data: () => DocumentData }): DeliveryTask {
+  const data = snapshot.data();
+  const timestampFields = [
+    "createdAt",
+    "updatedAt",
+    "assignedAt",
+    "pickedUpAt",
+    "outForDeliveryAt",
+    "deliveredAt",
+    "failedAt",
+  ] as const;
+  const timestamps = Object.fromEntries(
+    timestampFields.flatMap((field) => {
+      const timestamp = timestampToIso(data[field]);
+      return timestamp ? [[field, timestamp]] : [];
+    }),
+  );
+  return {
+    ...data,
+    id: snapshot.id,
+    ...timestamps,
+  } as DeliveryTask;
 }
 
 function timestampToIso(value: unknown): string | undefined {
@@ -194,6 +230,7 @@ export interface UserProfile {
   phoneNumber: string | null;
   photoURL: string | null;
   status: AccountStatus;
+  available?: boolean;
   capabilities: Capability[];
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;
@@ -214,7 +251,22 @@ export function userDoc(uid: string) {
 export async function fetchUser(uid: string): Promise<UserProfile | null> {
   const snapshot = await getDoc(userDoc(uid));
   if (!snapshot.exists()) return null;
-  const raw = snapshot.data();
+  return mapUserProfile(uid, snapshot.data());
+}
+
+export function subscribeToUser(
+  uid: string,
+  onNext: (profile: UserProfile | null) => void,
+  onError: (error: Error) => void,
+): Unsubscribe {
+  return onSnapshot(
+    userDoc(uid),
+    (snapshot) => onNext(snapshot.exists() ? mapUserProfile(uid, snapshot.data()) : null),
+    onError,
+  );
+}
+
+function mapUserProfile(uid: string, raw: DocumentData): UserProfile {
   const displayName =
     typeof raw["displayName"] === "string"
       ? raw["displayName"]
@@ -245,6 +297,7 @@ export async function fetchUser(uid: string): Promise<UserProfile | null> {
     photoURL,
     profileImage: photoURL,
     status: raw["status"] === undefined || raw["status"] === "active" ? "active" : "suspended",
+    ...(typeof raw["available"] === "boolean" ? { available: raw["available"] } : {}),
     capabilities: canonicalCapabilities(raw["capabilities"]),
     createdAt: (raw["createdAt"] as Timestamp | undefined) ?? null,
     updatedAt: (raw["updatedAt"] as Timestamp | undefined) ?? null,
@@ -262,11 +315,39 @@ export async function fetchUsersByCapability(capability: Capability): Promise<Us
   const profiles = new Map<string, UserProfile>();
   for (const snapshot of snapshots) {
     for (const entry of snapshot.docs) {
-      const profile = await fetchUser(entry.id);
-      if (profile) profiles.set(profile.uid, profile);
+      const profile = mapUserProfile(entry.id, entry.data());
+      profiles.set(profile.uid, profile);
     }
   }
   return [...profiles.values()];
+}
+
+export function subscribeToUsersByCapability(
+  capability: Capability,
+  onNext: (profiles: UserProfile[]) => void,
+  onError: (error: Error) => void,
+): Unsubscribe {
+  const storedCapabilities =
+    capability === "delivery_worker" ? [capability, "deliveryWorker"] : [capability];
+  const snapshotsByCapability = new Map<string, UserProfile[]>();
+  const unsubscribers = storedCapabilities.map((storedCapability) =>
+    onSnapshot(
+      query(usersCollection(), where("capabilities", "array-contains", storedCapability)),
+      (snapshot) => {
+        snapshotsByCapability.set(
+          storedCapability,
+          snapshot.docs.map((entry) => mapUserProfile(entry.id, entry.data())),
+        );
+        const profiles = new Map<string, UserProfile>();
+        for (const group of snapshotsByCapability.values()) {
+          for (const profile of group) profiles.set(profile.uid, profile);
+        }
+        onNext([...profiles.values()]);
+      },
+      onError,
+    ),
+  );
+  return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
 }
 
 /**
@@ -363,6 +444,13 @@ export async function updateUserProfile(uid: string, patch: SafeUserProfilePatch
       updatedAt: serverTimestamp(),
     }),
   );
+}
+
+export async function setWorkerAvailability(uid: string, available: boolean): Promise<void> {
+  await updateDoc(userDoc(uid), {
+    available,
+    updatedAt: serverTimestamp(),
+  });
 }
 
 /**
@@ -887,7 +975,35 @@ export async function fetchOrdersForCustomer(customerId: string): Promise<Order[
   const snapshot = await getDocs(
     query(ordersCollection(), where("customerId", "==", customerId), orderBy("createdAt", "desc")),
   );
-  return snapshot.docs.map((entry) => mapDoc<Order>(entry));
+  return snapshot.docs.map(mapOrderDoc);
+}
+
+export function subscribeToOrdersForCustomer(
+  customerId: string,
+  onNext: (orders: Order[]) => void,
+  onError: (error: Error) => void,
+): Unsubscribe {
+  return onSnapshot(
+    query(ordersCollection(), where("customerId", "==", customerId), orderBy("createdAt", "desc")),
+    (snapshot) => onNext(snapshot.docs.map(mapOrderDoc)),
+    onError,
+  );
+}
+
+export async function fetchAllOrders(): Promise<Order[]> {
+  const snapshot = await getDocs(query(ordersCollection(), orderBy("createdAt", "desc")));
+  return snapshot.docs.map(mapOrderDoc);
+}
+
+export function subscribeToAllOrders(
+  onNext: (orders: Order[]) => void,
+  onError: (error: Error) => void,
+): Unsubscribe {
+  return onSnapshot(
+    query(ordersCollection(), orderBy("createdAt", "desc")),
+    (snapshot) => onNext(snapshot.docs.map(mapOrderDoc)),
+    onError,
+  );
 }
 
 /** The retailer order queue. Scoped to one shop so a retailer never sees another's. */
@@ -896,12 +1012,129 @@ export async function fetchOrdersForShop(shopId: string, status?: OrderStatus): 
   if (status) constraints.push(where("orderStatus", "==", status));
   constraints.push(orderBy("createdAt", "desc"));
   const snapshot = await getDocs(query(ordersCollection(), ...constraints));
-  return snapshot.docs.map((entry) => mapDoc<Order>(entry));
+  return snapshot.docs.map(mapOrderDoc);
+}
+
+export function subscribeToOrdersForShop(
+  shopId: string,
+  onNext: (orders: Order[]) => void,
+  onError: (error: Error) => void,
+): Unsubscribe {
+  return onSnapshot(
+    query(ordersCollection(), where("shopId", "==", shopId), orderBy("createdAt", "desc")),
+    (snapshot) => onNext(snapshot.docs.map(mapOrderDoc)),
+    onError,
+  );
 }
 
 export async function fetchOrder(orderId: string): Promise<Order | null> {
   const snapshot = await getDoc(orderDoc(orderId));
-  return snapshot.exists() ? mapDoc<Order>(snapshot) : null;
+  return snapshot.exists() ? mapOrderDoc(snapshot) : null;
+}
+
+export async function createCustomerOrder(input: {
+  customerId: string;
+  shopId: string;
+  deliveryAddressId: string;
+  items: { productId: string; quantity: number }[];
+  paymentMethod: "COD";
+}): Promise<string> {
+  if (!input.customerId || !input.shopId || !input.deliveryAddressId) {
+    throw new Error("Customer, shop and delivery address are required.");
+  }
+  if (input.paymentMethod !== "COD") throw new Error("Only cash on delivery is available.");
+  if (!input.items.length || input.items.length > 50) {
+    throw new Error("Your cart must contain between 1 and 50 products.");
+  }
+  const uniqueItems = new Map<string, number>();
+  for (const item of input.items) {
+    if (!item.productId || !Number.isInteger(item.quantity) || item.quantity < 1) {
+      throw new Error("Each cart item must have a valid product and quantity.");
+    }
+    if (uniqueItems.has(item.productId)) throw new Error("Your cart contains duplicate products.");
+    uniqueItems.set(item.productId, item.quantity);
+  }
+
+  const db = requireDb();
+  const orderRef = doc(ordersCollection());
+  const productRefs = [...uniqueItems.keys()].map((productId) =>
+    doc(db, COLLECTIONS.products, productId),
+  );
+  return runTransaction(db, async (transaction) => {
+    const profileRef = userDoc(input.customerId);
+    const shopRef = doc(db, COLLECTIONS.shops, input.shopId);
+    const addressRef = addressDoc(input.deliveryAddressId);
+    const [profileSnapshot, shopSnapshot, addressSnapshot, ...productSnapshots] = await Promise.all(
+      [
+        transaction.get(profileRef),
+        transaction.get(shopRef),
+        transaction.get(addressRef),
+        ...productRefs.map((ref) => transaction.get(ref)),
+      ],
+    );
+    if (!profileSnapshot.exists()) throw new Error("Your customer profile could not be found.");
+    const profile = profileSnapshot.data();
+    if (profile["status"] !== undefined && profile["status"] !== "active") {
+      throw new Error("Your account is not active.");
+    }
+    if (!Array.isArray(profile["capabilities"]) || !profile["capabilities"].includes("customer")) {
+      throw new Error("An active customer account is required to place an order.");
+    }
+    if (!shopSnapshot.exists() || shopSnapshot.data()["status"] !== "ACTIVE") {
+      throw new Error("This shop is no longer available.");
+    }
+    if (!addressSnapshot.exists() || addressSnapshot.data()["userId"] !== input.customerId) {
+      throw new Error("Choose a saved delivery address that belongs to your account.");
+    }
+    const address = mapDoc<Address>(addressSnapshot);
+    if (
+      !Number.isFinite(address.latitude) ||
+      !Number.isFinite(address.longitude) ||
+      !address.address.trim()
+    ) {
+      throw new Error("The selected delivery address needs a valid location.");
+    }
+    const shop = mapShopDoc(shopSnapshot);
+    const items = productSnapshots.map((snapshot) => {
+      if (!snapshot.exists()) throw new Error("A product in your cart is no longer available.");
+      const product = mapProductDoc(snapshot);
+      const quantity = uniqueItems.get(product.id)!;
+      if (product.shopId !== input.shopId) {
+        throw new Error("All products in your order must belong to the selected shop.");
+      }
+      if (!product.availability || product.stock < quantity) {
+        throw new Error(`${product.name} is unavailable or has insufficient stock.`);
+      }
+      return {
+        productId: product.id,
+        name: product.name,
+        price: product.price,
+        quantity,
+        ...(product.image ? { image: product.image } : {}),
+      };
+    });
+    const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const deliveryAddress = { ...address, id: input.deliveryAddressId };
+    const now = new Date().toISOString();
+    transaction.set(orderRef, {
+      customerId: input.customerId,
+      shopId: input.shopId,
+      shopName: shop.name,
+      items,
+      subtotal,
+      deliveryFee: STANDARD_DELIVERY_FEE,
+      totalAmount: subtotal + STANDARD_DELIVERY_FEE,
+      deliveryAddressId: input.deliveryAddressId,
+      deliveryAddress,
+      paymentMethod: "COD",
+      paymentStatus: "COD_PENDING",
+      orderStatus: "PLACED",
+      statusHistory: [{ status: "PLACED", at: now }],
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return orderRef.id;
+  });
 }
 
 /**
@@ -947,16 +1180,64 @@ export async function updateOrder(orderId: string, patch: Partial<Order>): Promi
 export async function transitionOrder(
   orderId: string,
   nextStatus: OrderStatus,
+  patch: Partial<Order> = {},
   at: string = new Date().toISOString(),
 ): Promise<void> {
   const db = requireDb();
-  const batch = writeBatch(db);
-  batch.update(orderDoc(orderId), {
-    orderStatus: nextStatus,
-    statusHistory: arrayUnion({ status: nextStatus, at }),
-    updatedAt: serverTimestamp(),
+  await runTransaction(db, async (transaction) => {
+    const ref = orderDoc(orderId);
+    const snapshot = await transaction.get(ref);
+    if (!snapshot.exists()) throw new Error("Order not found.");
+    const order = mapOrderDoc(snapshot);
+    const changes: Record<string, unknown> = {
+      ...stripUndefined(patch),
+      orderStatus: nextStatus,
+      statusHistory: arrayUnion({ status: nextStatus, at }),
+      updatedAt: serverTimestamp(),
+    };
+    if (nextStatus === "READY_FOR_PICKUP") {
+      const taskId = order.deliveryTaskId ?? `task-${order.id}`;
+      const taskRef = deliveryTaskDoc(taskId);
+      const taskSnapshot = await transaction.get(taskRef);
+      if (taskSnapshot.exists()) {
+        const task = taskSnapshot.data();
+        if (task["orderId"] !== order.id || task["shopId"] !== order.shopId) {
+          throw new Error("A conflicting delivery task already exists for this order.");
+        }
+      } else {
+        const shopSnapshot = await transaction.get(doc(db, COLLECTIONS.shops, order.shopId));
+        if (!shopSnapshot.exists()) throw new Error("The order's shop could not be found.");
+        const shop = mapShopDoc(shopSnapshot);
+        const pickupLatitude = shop.latitude;
+        const pickupLongitude = shop.longitude;
+        const deliveryLatitude = order.deliveryAddress.latitude;
+        const deliveryLongitude = order.deliveryAddress.longitude;
+        if (
+          !Number.isFinite(pickupLatitude) ||
+          !Number.isFinite(pickupLongitude) ||
+          !Number.isFinite(deliveryLatitude) ||
+          !Number.isFinite(deliveryLongitude)
+        ) {
+          throw new Error("A valid pickup and delivery location is required to create the task.");
+        }
+        const latitudeDelta = deliveryLatitude! - pickupLatitude!;
+        const longitudeDelta = deliveryLongitude! - pickupLongitude!;
+        transaction.set(taskRef, {
+          orderId: order.id,
+          shopId: order.shopId,
+          status: "AVAILABLE",
+          pickupLocation: { latitude: pickupLatitude, longitude: pickupLongitude },
+          deliveryLocation: { latitude: deliveryLatitude, longitude: deliveryLongitude },
+          distance: Math.max(0.5, Math.hypot(latitudeDelta, longitudeDelta) * 111),
+          deliveryFee: order.deliveryFee,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+      changes["deliveryTaskId"] = taskId;
+    }
+    transaction.update(ref, changes);
   });
-  await batch.commit();
 }
 
 // ---------------------------------------------------------------------------
@@ -969,33 +1250,19 @@ export function paymentsCollection() {
 
 export async function fetchPaymentsForOrder(orderId: string): Promise<Payment[]> {
   const snapshot = await getDocs(query(paymentsCollection(), where("orderId", "==", orderId)));
-  return snapshot.docs.map((entry) => mapDoc<Payment>(entry));
-}
-
-/**
- * Records a payment attempt.
- *
- * Gateway credentials are never handled here — only the identifiers Cashfree
- * returns. Secret keys stay in Cloud Functions.
- */
-export async function createPayment(
-  payment: Omit<Payment, "id" | "createdAt" | "updatedAt"> & { id?: string },
-): Promise<string> {
-  const body = stripUndefined({
-    ...payment,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+  return snapshot.docs.map((entry) => {
+    const data = entry.data();
+    return {
+      ...data,
+      id: entry.id,
+      ...Object.fromEntries(
+        (["createdAt", "updatedAt", "paidAt"] as const).flatMap((field) => {
+          const timestamp = timestampToIso(data[field]);
+          return timestamp ? [[field, timestamp]] : [];
+        }),
+      ),
+    } as Payment;
   });
-  if (payment.id) {
-    await setDoc(doc(requireDb(), COLLECTIONS.payments, payment.id), body);
-    return payment.id;
-  }
-  const created = await addDoc(paymentsCollection(), body);
-  return created.id;
-}
-
-export async function updatePayment(paymentId: string, patch: Partial<Payment>): Promise<void> {
-  await updateDoc(doc(requireDb(), COLLECTIONS.payments, paymentId), stripUndefined(patch));
 }
 
 // ---------------------------------------------------------------------------
@@ -1019,7 +1286,22 @@ export async function fetchAvailableTasks(): Promise<DeliveryTask[]> {
       orderBy("createdAt", "desc"),
     ),
   );
-  return snapshot.docs.map((entry) => mapDoc<DeliveryTask>(entry));
+  return snapshot.docs.map(mapDeliveryTaskDoc);
+}
+
+export function subscribeToAvailableTasks(
+  onNext: (tasks: DeliveryTask[]) => void,
+  onError: (error: Error) => void,
+): Unsubscribe {
+  return onSnapshot(
+    query(
+      deliveryTasksCollection(),
+      where("status", "==", "AVAILABLE"),
+      orderBy("createdAt", "desc"),
+    ),
+    (snapshot) => onNext(snapshot.docs.map(mapDeliveryTaskDoc)),
+    onError,
+  );
 }
 
 export async function fetchTasksForWorker(deliveryWorkerId: string): Promise<DeliveryTask[]> {
@@ -1030,12 +1312,44 @@ export async function fetchTasksForWorker(deliveryWorkerId: string): Promise<Del
       orderBy("createdAt", "desc"),
     ),
   );
-  return snapshot.docs.map((entry) => mapDoc<DeliveryTask>(entry));
+  return snapshot.docs.map(mapDeliveryTaskDoc);
+}
+
+export function subscribeToTasksForWorker(
+  deliveryWorkerId: string,
+  onNext: (tasks: DeliveryTask[]) => void,
+  onError: (error: Error) => void,
+): Unsubscribe {
+  return onSnapshot(
+    query(
+      deliveryTasksCollection(),
+      where("deliveryWorkerId", "==", deliveryWorkerId),
+      orderBy("createdAt", "desc"),
+    ),
+    (snapshot) => onNext(snapshot.docs.map(mapDeliveryTaskDoc)),
+    onError,
+  );
+}
+
+export async function fetchAllDeliveryTasks(): Promise<DeliveryTask[]> {
+  const snapshot = await getDocs(query(deliveryTasksCollection(), orderBy("createdAt", "desc")));
+  return snapshot.docs.map(mapDeliveryTaskDoc);
+}
+
+export function subscribeToAllDeliveryTasks(
+  onNext: (tasks: DeliveryTask[]) => void,
+  onError: (error: Error) => void,
+): Unsubscribe {
+  return onSnapshot(
+    query(deliveryTasksCollection(), orderBy("createdAt", "desc")),
+    (snapshot) => onNext(snapshot.docs.map(mapDeliveryTaskDoc)),
+    onError,
+  );
 }
 
 export async function fetchDeliveryTask(taskId: string): Promise<DeliveryTask | null> {
   const snapshot = await getDoc(deliveryTaskDoc(taskId));
-  return snapshot.exists() ? mapDoc<DeliveryTask>(snapshot) : null;
+  return snapshot.exists() ? mapDeliveryTaskDoc(snapshot) : null;
 }
 
 /**
@@ -1046,42 +1360,165 @@ export async function fetchDeliveryTask(taskId: string): Promise<DeliveryTask | 
  */
 export async function claimDeliveryTask(taskId: string, deliveryWorkerId: string): Promise<void> {
   const db = requireDb();
-  const snapshot = await getDoc(deliveryTaskDoc(taskId));
-  if (!snapshot.exists()) throw new Error("Delivery task not found.");
-  if (snapshot.data()["status"] !== "AVAILABLE") {
-    throw new Error("This delivery task has already been claimed.");
-  }
-  const batch = writeBatch(db);
-  batch.update(deliveryTaskDoc(taskId), {
-    deliveryWorkerId,
-    status: "DELIVERY_ASSIGNED",
-    updatedAt: serverTimestamp(),
+  await runTransaction(db, async (transaction) => {
+    const taskRef = deliveryTaskDoc(taskId);
+    const taskSnapshot = await transaction.get(taskRef);
+    if (!taskSnapshot.exists()) throw new Error("Delivery task not found.");
+    const task = mapDeliveryTaskDoc(taskSnapshot);
+    if (task.status !== "AVAILABLE" || task.deliveryWorkerId)
+      throw new Error("Task is no longer available.");
+    const orderRef = orderDoc(task.orderId);
+    const orderSnapshot = await transaction.get(orderRef);
+    if (!orderSnapshot.exists()) throw new Error("The order for this task could not be found.");
+    const order = mapOrderDoc(orderSnapshot);
+    const profileSnapshot = await transaction.get(userDoc(deliveryWorkerId));
+    if (!profileSnapshot.exists())
+      throw new Error("An active delivery-worker profile is required.");
+    const profile = profileSnapshot.data();
+    const capabilities = canonicalCapabilities(profile["capabilities"]);
+    if (
+      profile["status"] === "suspended" ||
+      !capabilities.includes("delivery_worker") ||
+      profile["available"] === false
+    ) {
+      throw new Error("You are not available to accept delivery tasks.");
+    }
+    if (order.orderStatus !== "READY_FOR_PICKUP" || order.deliveryTaskId !== taskId)
+      throw new Error("Task is no longer available.");
+    const now = new Date().toISOString();
+    transaction.update(taskRef, {
+      deliveryWorkerId,
+      status: "DELIVERY_ASSIGNED",
+      assignedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    transaction.update(orderRef, {
+      orderStatus: "DELIVERY_ASSIGNED",
+      statusHistory: arrayUnion({ status: "DELIVERY_ASSIGNED", at: now }),
+      updatedAt: serverTimestamp(),
+    });
   });
-  await batch.commit();
+}
+
+/** Admin dispatch uses the same atomic order/task transition as worker self-claim. */
+export async function assignDeliveryTask(taskId: string, deliveryWorkerId: string): Promise<void> {
+  const db = requireDb();
+  await runTransaction(db, async (transaction) => {
+    const taskRef = deliveryTaskDoc(taskId);
+    const taskSnapshot = await transaction.get(taskRef);
+    if (!taskSnapshot.exists()) throw new Error("Delivery task not found.");
+    const task = mapDeliveryTaskDoc(taskSnapshot);
+    if (task.status !== "AVAILABLE" || task.deliveryWorkerId)
+      throw new Error("Task is no longer available.");
+
+    const orderRef = orderDoc(task.orderId);
+    const orderSnapshot = await transaction.get(orderRef);
+    if (!orderSnapshot.exists()) throw new Error("The order for this task could not be found.");
+    const order = mapOrderDoc(orderSnapshot);
+    const profileSnapshot = await transaction.get(userDoc(deliveryWorkerId));
+    if (!profileSnapshot.exists()) throw new Error("Delivery worker not found.");
+    const profile = profileSnapshot.data();
+    const capabilities = canonicalCapabilities(profile["capabilities"]);
+    if (
+      profile["status"] === "suspended" ||
+      !capabilities.includes("delivery_worker") ||
+      profile["available"] === false
+    ) {
+      throw new Error("Choose an active, available delivery worker.");
+    }
+    if (order.orderStatus !== "READY_FOR_PICKUP" || order.deliveryTaskId !== taskId)
+      throw new Error("Task is no longer available.");
+
+    transaction.update(taskRef, {
+      deliveryWorkerId,
+      status: "DELIVERY_ASSIGNED",
+      assignedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    transaction.update(orderRef, {
+      orderStatus: "DELIVERY_ASSIGNED",
+      statusHistory: arrayUnion({
+        status: "DELIVERY_ASSIGNED",
+        at: new Date().toISOString(),
+      }),
+      updatedAt: serverTimestamp(),
+    });
+  });
 }
 
 export async function updateDeliveryTask(
   taskId: string,
   patch: Partial<DeliveryTask>,
 ): Promise<void> {
-  await updateDoc(
-    deliveryTaskDoc(taskId),
-    stripUndefined({ ...patch, updatedAt: serverTimestamp() }),
-  );
-}
-
-export async function createDeliveryTask(
-  task: Omit<DeliveryTask, "id" | "createdAt" | "updatedAt"> & { id?: string },
-): Promise<string> {
-  const body = stripUndefined({
-    ...task,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-  if (task.id) {
-    await setDoc(deliveryTaskDoc(task.id), body);
-    return task.id;
+  const nextStatus = patch.status;
+  if (!nextStatus) throw new Error("A delivery task status is required.");
+  const orderStatus: Partial<Record<DeliveryTask["status"], OrderStatus>> = {
+    DELIVERY_ASSIGNED: "DELIVERY_ASSIGNED",
+    PICKED_UP: "PICKED_UP",
+    OUT_FOR_DELIVERY: "OUT_FOR_DELIVERY",
+    DELIVERED: "DELIVERED",
+    DELIVERY_FAILED: "DELIVERY_FAILED",
+  };
+  const nextOrderStatus = orderStatus[nextStatus];
+  if (!nextOrderStatus) throw new Error("The requested task status is not a worker transition.");
+  const allowed: Partial<Record<DeliveryTask["status"], DeliveryTask["status"][]>> = {
+    DELIVERY_ASSIGNED: ["PICKED_UP"],
+    PICKED_UP: ["OUT_FOR_DELIVERY"],
+    OUT_FOR_DELIVERY: ["DELIVERED", "DELIVERY_FAILED"],
+  };
+  if (nextStatus === "DELIVERY_FAILED") {
+    const reason = patch.failureReason?.trim() ?? "";
+    if (reason.length < 3 || reason.length > 250) {
+      throw new Error("Provide a delivery failure reason between 3 and 250 characters.");
+    }
   }
-  const created = await addDoc(deliveryTasksCollection(), body);
-  return created.id;
+  const db = requireDb();
+  await runTransaction(db, async (transaction) => {
+    const taskRef = deliveryTaskDoc(taskId);
+    const taskSnapshot = await transaction.get(taskRef);
+    if (!taskSnapshot.exists()) throw new Error("Delivery task not found.");
+    const task = mapDeliveryTaskDoc(taskSnapshot);
+    const orderRef = orderDoc(task.orderId);
+    const orderSnapshot = await transaction.get(orderRef);
+    if (!orderSnapshot.exists()) throw new Error("The order for this task could not be found.");
+    const order = mapOrderDoc(orderSnapshot);
+    if (!task.deliveryWorkerId || !allowed[task.status]?.includes(nextStatus)) {
+      throw new Error("This task can no longer be updated.");
+    }
+    const expectedCurrentOrderStatus: Partial<Record<DeliveryTask["status"], OrderStatus>> = {
+      DELIVERY_ASSIGNED: "DELIVERY_ASSIGNED",
+      PICKED_UP: "PICKED_UP",
+      OUT_FOR_DELIVERY: "OUT_FOR_DELIVERY",
+    };
+    if (
+      order.deliveryTaskId !== taskId ||
+      order.orderStatus !== expectedCurrentOrderStatus[task.status]
+    ) {
+      throw new Error("The task and order are no longer in sync.");
+    }
+    const now = new Date().toISOString();
+    const timestampField: Partial<Record<DeliveryTask["status"], string>> = {
+      PICKED_UP: "pickedUpAt",
+      OUT_FOR_DELIVERY: "outForDeliveryAt",
+      DELIVERED: "deliveredAt",
+      DELIVERY_FAILED: "failedAt",
+    };
+    const taskPatch: Record<string, unknown> = {
+      status: nextStatus,
+      updatedAt: serverTimestamp(),
+    };
+    const milestone = timestampField[nextStatus];
+    if (milestone) taskPatch[milestone] = serverTimestamp();
+    if (nextStatus === "DELIVERY_FAILED") {
+      taskPatch["failureReason"] = patch.failureReason!.trim();
+      if (patch.failureNotes?.trim()) taskPatch["failureNotes"] = patch.failureNotes.trim();
+      else taskPatch["failureNotes"] = deleteField();
+    }
+    transaction.update(taskRef, taskPatch);
+    transaction.update(orderRef, {
+      orderStatus: nextOrderStatus,
+      statusHistory: arrayUnion({ status: nextOrderStatus, at: now }),
+      updatedAt: serverTimestamp(),
+    });
+  });
 }

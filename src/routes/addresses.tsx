@@ -78,7 +78,7 @@ function Addresses() {
     setOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // Validation
@@ -116,28 +116,50 @@ function Addresses() {
       isDefault,
     };
 
-    if (editingId) {
-      update(editingId, addressData);
-      toast.success("Address updated");
-    } else {
-      add(addressData);
-      toast.success("Address saved");
+    try {
+      if (editingId) {
+        await update(editingId, {
+          ...addressData,
+          ...(selectedLocation
+            ? { latitude: selectedLocation.latitude, longitude: selectedLocation.longitude }
+            : {}),
+        });
+        toast.success("Address updated");
+      } else {
+        await add(addressData, selectedLocation ?? undefined);
+        toast.success("Address saved");
+      }
+      resetForm();
+      setOpen(false);
+      setEditingId(null);
+    } catch (error) {
+      toast.error("Could not save address", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
     }
-
-    resetForm();
-    setOpen(false);
-    setEditingId(null);
   };
 
-  const handleDelete = (id: string) => {
-    remove(id);
-    setDeleteConfirmId(null);
-    toast.success("Address deleted");
+  const handleDelete = async (id: string) => {
+    try {
+      await remove(id);
+      setDeleteConfirmId(null);
+      toast.success("Address deleted");
+    } catch (error) {
+      toast.error("Could not delete address", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    }
   };
 
-  const handleSetDefault = (id: string) => {
-    setDefault(id);
-    toast.success("Default address updated");
+  const handleSetDefault = async (id: string) => {
+    try {
+      await setDefault(id);
+      toast.success("Default address updated");
+    } catch (error) {
+      toast.error("Could not update default address", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    }
   };
 
   const handleLocationSelect = (location: {
@@ -147,6 +169,26 @@ function Addresses() {
   }) => {
     setSelectedLocation(location);
     setAddress(location.address);
+  };
+
+  const handleUseDeviceLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error("Location is unavailable", { description: "Enter your address manually." });
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) =>
+        handleLocationSelect({
+          address: address.trim(),
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+        }),
+      () =>
+        toast.error("Could not get your location", {
+          description: "Allow location access and retry.",
+        }),
+      { enableHighAccuracy: true, timeout: 10_000 },
+    );
   };
 
   return (
@@ -280,17 +322,10 @@ function Addresses() {
                 <div className="space-y-2">
                   <button
                     type="button"
-                    onClick={() => {
-                      const demoAddress = "12A, Example Street, Chennai";
-                      handleLocationSelect({
-                        address: demoAddress,
-                        latitude: 13.0827,
-                        longitude: 80.2707,
-                      });
-                    }}
+                    onClick={handleUseDeviceLocation}
                     className="press flex w-full items-center gap-3 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-soft-violet"
                   >
-                    <MapPin className="h-4 w-4" /> Use my current location
+                    <MapPin className="h-4 w-4" /> Use device location
                   </button>
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

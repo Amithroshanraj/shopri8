@@ -6,6 +6,7 @@ import { SHOP_BY_ID } from "@/data/demo";
 import { useWorkerAuth } from "@/lib/workerAuth";
 import { useWorkerStore } from "@/lib/workerStore";
 import { cn } from "@/lib/utils";
+import { isFirebaseActive } from "@/lib/firebase";
 
 export const Route = createFileRoute("/worker/tasks/")({
   head: () => ({ meta: [{ title: "Delivery Tasks — SHOPRi8" }] }),
@@ -139,7 +140,11 @@ function WorkerTasks() {
                 key={task.id}
                 task={task}
                 order={order}
-                shopAddress={SHOP_BY_ID[task.shopId]?.address ?? "Pickup location unavailable"}
+                shopAddress={
+                  isFirebaseActive
+                    ? `Pickup coordinates: ${task.pickupLocation.latitude.toFixed(5)}, ${task.pickupLocation.longitude.toFixed(5)}`
+                    : (SHOP_BY_ID[task.shopId]?.address ?? "Pickup location unavailable")
+                }
               />
             );
           })}

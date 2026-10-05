@@ -75,12 +75,117 @@ service cloud.firestore {
       return hasCapability('delivery_worker');
     }
 
+    function isAvailableWorker(uid) {
+      let profile = userDoc(uid).data;
+      return profile.capabilities is list
+        && ('delivery_worker' in profile.capabilities
+            || 'deliveryWorker' in profile.capabilities)
+        && (!('status' in profile) || profile.status == 'active')
+        && (!('available' in profile) || profile.available == true);
+    }
+
     function isAdmin() {
       return hasCapability('admin');
     }
 
     function retailerApplicationPath(uid) {
       return /databases/$(database)/documents/retailerApplications/$(uid);
+    }
+
+    function orderPath(orderId) {
+      return /databases/$(database)/documents/orders/$(orderId);
+    }
+
+    function deliveryTaskPath(taskId) {
+      return /databases/$(database)/documents/deliveryTasks/$(taskId);
+    }
+
+    function validOrderHistoryAppend() {
+      return resource.data.statusHistory is list
+        && request.resource.data.statusHistory is list
+        && request.resource.data.statusHistory.size() == resource.data.statusHistory.size() + 1
+        && request.resource.data.statusHistory[resource.data.statusHistory.size()].status
+          == request.resource.data.orderStatus;
+    }
+
+    function validOrderCreate() {
+      let data = request.resource.data;
+      let addressPath = /databases/$(database)/documents/addresses/$(data.deliveryAddressId);
+      return data.keys().hasAll([
+          'customerId', 'shopId', 'shopName', 'items', 'subtotal', 'deliveryFee',
+          'totalAmount', 'deliveryAddressId', 'deliveryAddress', 'paymentMethod',
+          'paymentStatus', 'orderStatus', 'statusHistory', 'createdAt', 'updatedAt'
+        ])
+        && data.customerId == request.auth.uid
+        && isActiveShop(data.shopId)
+        && data.shopName is string
+        && data.items is list
+        && data.items.size() > 0
+        && data.items.size() <= 50
+        && data.subtotal is number && data.subtotal >= 0
+        && data.deliveryFee is number && data.deliveryFee >= 0
+        && data.totalAmount == data.subtotal + data.deliveryFee
+        && data.deliveryAddressId is string
+        && exists(addressPath)
+        && get(addressPath).data.userId == request.auth.uid
+        && data.deliveryAddress is map
+        && data.deliveryAddress.id == data.deliveryAddressId
+        && data.deliveryAddress.userId == request.auth.uid
+        && data.deliveryAddress.latitude is number
+        && data.deliveryAddress.longitude is number
+        && data.paymentMethod == 'COD'
+        && data.paymentStatus == 'COD_PENDING'
+        && data.orderStatus == 'PLACED'
+        && data.statusHistory is list
+        && data.statusHistory.size() == 1
+        && data.statusHistory[0].status == 'PLACED'
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function hasReadyDeliveryTask(orderId) {
+      let data = request.resource.data;
+      let taskPath = deliveryTaskPath(data.deliveryTaskId);
+      return data.deliveryTaskId == 'task-' + orderId
+        && existsAfter(taskPath)
+        && getAfter(taskPath).data.orderId == orderId
+        && getAfter(taskPath).data.shopId == resource.data.shopId
+        && getAfter(taskPath).data.status == 'AVAILABLE'
+        && !('deliveryWorkerId' in getAfter(taskPath).data);
+    }
+
+    function readyTaskMatchesOrder(taskId) {
+      let order = getAfter(orderPath(request.resource.data.orderId)).data;
+      return request.resource.data.status == 'AVAILABLE'
+        && taskId == 'task-' + request.resource.data.orderId
+        && !('deliveryWorkerId' in request.resource.data)
+        && order.orderStatus == 'READY_FOR_PICKUP'
+        && order.deliveryTaskId == taskId
+        && order.shopId == request.resource.data.shopId;
+    }
+
+    function orderStatusForTask(status) {
+      return status == 'DELIVERY_ASSIGNED' ? 'DELIVERY_ASSIGNED'
+        : status == 'PICKED_UP' ? 'PICKED_UP'
+        : status == 'OUT_FOR_DELIVERY' ? 'OUT_FOR_DELIVERY'
+        : status == 'DELIVERED' ? 'DELIVERED'
+        : status == 'DELIVERY_FAILED' ? 'DELIVERY_FAILED'
+        : '';
+    }
+
+    function validAdminOrderDispatch(orderId) {
+      let taskPath = deliveryTaskPath(request.resource.data.deliveryTaskId);
+      return resource.data.orderStatus == 'READY_FOR_PICKUP'
+        && request.resource.data.orderStatus == 'DELIVERY_ASSIGNED'
+        && validOrderHistoryAppend()
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.deliveryTaskId == resource.data.deliveryTaskId
+        && existsAfter(taskPath)
+        && getAfter(taskPath).data.orderId == orderId
+        && getAfter(taskPath).data.status == 'DELIVERY_ASSIGNED'
+        && getAfter(taskPath).data.deliveryWorkerId is string
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['orderStatus', 'statusHistory', 'updatedAt']);
     }
 
     function approvedApplicationOwnsShop(uid) {
@@ -128,7 +233,10 @@ service cloud.firestore {
       let changes = request.resource.data.diff(resource.data).affectedKeys();
       return isUser(uid)
         && isActiveAccount()
-        && changes.hasOnly(['uid', 'displayName', 'email', 'phoneNumber', 'photoURL', 'status', 'updatedAt'])
+        && changes.hasOnly([
+             'uid', 'displayName', 'email', 'phoneNumber', 'photoURL',
+             'status', 'available', 'updatedAt'
+           ])
         && request.resource.data.uid == uid
         && (!('uid' in resource.data) || resource.data.uid == uid)
         && validOptionalProfileFields(request.resource.data)
@@ -138,6 +246,8 @@ service cloud.firestore {
             || request.resource.data.phoneNumber == request.auth.token.get('phone_number', null))
         && (!changes.hasAny(['status'])
             || (!('status' in resource.data) && request.resource.data.status == 'active'))
+        && (!changes.hasAny(['available'])
+            || (isWorker() && request.resource.data.available is bool))
         && (!changes.hasAny(['updatedAt']) || request.resource.data.updatedAt == request.time);
     }
 
@@ -277,9 +387,21 @@ service cloud.firestore {
           || (from == 'ACCEPTED'              && to == 'PREPARING')
           || (from == 'PREPARING'             && to == 'READY_FOR_PICKUP')
           || (from == 'READY_FOR_PICKUP'      && to == 'DELIVERY_ASSIGNED')
-          || (from == 'DELIVERY_ASSIGNED'     && to in ['PICKED_UP', 'DELIVERY_FAILED'])
-          || (from == 'PICKED_UP'             && to in ['OUT_FOR_DELIVERY', 'DELIVERY_FAILED'])
+          || (from == 'DELIVERY_ASSIGNED'     && to == 'PICKED_UP')
+          || (from == 'PICKED_UP'             && to == 'OUT_FOR_DELIVERY')
           || (from == 'OUT_FOR_DELIVERY'      && to in ['DELIVERED', 'DELIVERY_FAILED']);
+    }
+
+    function validRetailerTransition(from, to) {
+      return (from == 'PLACED'          && to == 'RETAILER_REVIEW')
+          || (from == 'RETAILER_REVIEW' && to in ['ACCEPTED', 'REJECTED'])
+          || (from == 'ACCEPTED'        && to == 'PREPARING')
+          || (from == 'PREPARING'       && to == 'READY_FOR_PICKUP');
+    }
+
+    function retailerMayProcessOrder(data) {
+      return data.get('paymentMethod', 'COD') == 'COD'
+          || data.get('paymentStatus', 'PENDING') == 'PAID';
     }
 
     // -----------------------------------------------------------------------
@@ -484,16 +606,15 @@ service cloud.firestore {
       allow read: if isAdmin()
                   || (isSignedIn() && resource.data.customerId == request.auth.uid)
                   || (isRetailer() && ownsShop(resource.data.shopId))
-                  || isAssignedWorker();
+                  || isAssignedWorker()
+                  || isEligibleTaskWorker();
 
       /**
        * Customers create their own orders. The order must start at a real
        * lifecycle state, and the client-supplied customerId must be the caller.
        */
-      allow create: if isSignedIn()
-        && isCustomer()
-        && request.resource.data.customerId == request.auth.uid
-        && request.resource.data.orderStatus == 'PLACED';
+      allow create: if isCustomer()
+        && validOrderCreate();
 
       /**
        * Updates are the interesting case.
@@ -502,46 +623,61 @@ service cloud.firestore {
        * A retailer may move an order along the fulfillment half of the flow for
        * their own shop, and may set a rejection reason.
        * A worker may only advance the delivery half, and only for their task.
-       * An admin may do any of these.
+       * Admin dispatch may only move a ready order alongside a valid assignment.
        *
        * `diff().affectedKeys()` keeps each actor from rewriting fields it has no
        * business touching, such as a retailer changing the price.
        */
-      allow update: if isAdmin() || validCustomerUpdate() || validRetailerUpdate() || validWorkerUpdate();
+      allow update: if (isAdmin() && validAdminOrderDispatch(orderId))
+        || (isCustomer() && validCustomerUpdate())
+        || (isRetailer() && validRetailerUpdate())
+        || (isWorker() && validWorkerUpdate());
 
       // Nobody deletes an order; cancellation is a status, not a deletion.
-      allow delete: if isAdmin();
+      allow delete: if false;
 
       // ---- order update guards ----
 
       function validCustomerUpdate() {
-        return isSignedIn()
-          && resource.data.customerId == request.auth.uid
+        return resource.data.customerId == request.auth.uid
+          && resource.data.orderStatus in ['PLACED', 'RETAILER_REVIEW']
           && request.resource.data.orderStatus == 'CANCELLED'
+          && validOrderHistoryAppend()
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['paymentStatus'])
+              || (resource.data.paymentStatus == 'COD_PENDING'
+                  && request.resource.data.paymentStatus == 'CANCELLED'))
           && request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(['orderStatus', 'statusHistory', 'updatedAt']);
+               .hasOnly(['orderStatus', 'statusHistory', 'updatedAt', 'paymentStatus']);
       }
 
       function validRetailerUpdate() {
-        return isRetailer()
-          && ownsShop(resource.data.shopId)
-          && validOrderTransition(resource.data.orderStatus, request.resource.data.orderStatus)
-          && request.resource.data.orderStatus in [
-               'RETAILER_REVIEW', 'ACCEPTED', 'PREPARING', 'READY_FOR_PICKUP', 'REJECTED'
-             ]
-          && request.resource.data.diff(resource.data).affectedKeys()
+        let changes = request.resource.data.diff(resource.data).affectedKeys();
+        return ownsShop(resource.data.shopId)
+          && retailerMayProcessOrder(resource.data)
+          && validRetailerTransition(resource.data.orderStatus, request.resource.data.orderStatus)
+          && validOrderHistoryAppend()
+          && (request.resource.data.orderStatus == 'READY_FOR_PICKUP'
+              ? hasReadyDeliveryTask(orderId)
+              : !changes.hasAny(['deliveryTaskId']))
+          && (request.resource.data.orderStatus != 'REJECTED'
+              || (request.resource.data.rejectionReason is string
+                  && request.resource.data.rejectionReason.size() > 0))
+          && changes
                .hasOnly([
                  'orderStatus', 'statusHistory', 'rejectionReason', 'updatedAt',
-                 'paymentStatus'
+                 'deliveryTaskId'
                ]);
       }
 
       function validWorkerUpdate() {
-        return isAssignedWorker()
+        return hasAssignedDeliveryTask()
           && validOrderTransition(resource.data.orderStatus, request.resource.data.orderStatus)
+          && validOrderHistoryAppend()
           && request.resource.data.orderStatus in [
                'DELIVERY_ASSIGNED', 'PICKED_UP', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED'
              ]
+          && getAfter(deliveryTaskPath(resource.data.deliveryTaskId)).data.status
+            == request.resource.data.orderStatus
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(['orderStatus', 'statusHistory', 'updatedAt']);
       }
@@ -554,12 +690,26 @@ service cloud.firestore {
        * that field has no assigned worker and nobody may advance it as a worker.
        */
       function isAssignedWorker() {
+        return isWorker() && hasAssignedDeliveryTask();
+      }
+
+      function hasAssignedDeliveryTask() {
+        return 'deliveryTaskId' in resource.data
+          && resource.data.deliveryTaskId is string
+          && existsAfter(deliveryTaskPath(resource.data.deliveryTaskId))
+          && getAfter(deliveryTaskPath(resource.data.deliveryTaskId)).data.orderId == orderId
+          && getAfter(deliveryTaskPath(resource.data.deliveryTaskId)).data.deliveryWorkerId
+            == request.auth.uid;
+      }
+
+      function isEligibleTaskWorker() {
         return isWorker()
           && 'deliveryTaskId' in resource.data
-          && resource.data.deliveryTaskId is string
-          && exists(/databases/$(database)/documents/deliveryTasks/$(resource.data.deliveryTaskId))
-          && get(/databases/$(database)/documents/deliveryTasks/$(resource.data.deliveryTaskId))
-               .data.deliveryWorkerId == request.auth.uid;
+          && exists(deliveryTaskPath(resource.data.deliveryTaskId))
+          && get(deliveryTaskPath(resource.data.deliveryTaskId)).data.orderId == orderId
+          && (get(deliveryTaskPath(resource.data.deliveryTaskId)).data.status == 'AVAILABLE'
+              || get(deliveryTaskPath(resource.data.deliveryTaskId)).data.deliveryWorkerId
+                == request.auth.uid);
       }
     }
 
@@ -572,13 +722,17 @@ service cloud.firestore {
        * tasks. The owning retailer and admins can read tasks for their shop.
        */
       allow read: if isAdmin()
-                  || isWorker()
-                  || (isRetailer() && ownsShop(resource.data.shopId))
-                  || (isSignedIn() && resource.data.deliveryWorkerId == request.auth.uid);
+                  || (isWorker()
+                      && (resource.data.status == 'AVAILABLE'
+                          || resource.data.deliveryWorkerId == request.auth.uid))
+                  || (isRetailer() && ownsShop(resource.data.shopId));
 
       // Created by the platform when a retailer marks an order ready, or by an
       // admin. Never by a client that is inventing its own delivery work.
-      allow create: if isAdmin() || (isRetailer() && ownsShop(request.resource.data.shopId));
+      allow create: if (isAdmin() && validDeliveryTaskCreate(taskId))
+        || (isRetailer()
+            && ownsShop(request.resource.data.shopId)
+            && validDeliveryTaskCreate(taskId));
 
       /**
        * Claiming: an AVAILABLE task with no worker becomes this caller's task.
@@ -588,18 +742,42 @@ service cloud.firestore {
        * unclaimed task omits the field entirely, and reading a missing field
        * raises an error that would fail the whole rule.
        */
-      allow update: if isAdmin() || validClaim() || validWorkerAdvance();
+      allow update: if validAdminAssignment()
+        || (isWorker() && validClaim())
+        || (isWorker() && validWorkerAdvance());
 
-      allow delete: if isAdmin();
+      allow delete: if false;
 
-      function validClaim() {
-        return isWorker()
+      function validAdminAssignment() {
+        let order = getAfter(orderPath(resource.data.orderId)).data;
+        return isAdmin()
           && resource.data.status == 'AVAILABLE'
           && !('deliveryWorkerId' in resource.data.keys())
           && request.resource.data.status == 'DELIVERY_ASSIGNED'
-          && request.resource.data.deliveryWorkerId == request.auth.uid
+          && request.resource.data.deliveryWorkerId is string
+          && isAvailableWorker(request.resource.data.deliveryWorkerId)
+          && request.resource.data.assignedAt == request.time
+          && request.resource.data.updatedAt == request.time
+          && order.orderStatus == 'DELIVERY_ASSIGNED'
+          && order.deliveryTaskId == taskId
+          && order.shopId == resource.data.shopId
           && request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(['status', 'deliveryWorkerId', 'updatedAt']);
+               .hasOnly(['status', 'deliveryWorkerId', 'assignedAt', 'updatedAt']);
+      }
+
+      function validClaim() {
+        let order = getAfter(orderPath(resource.data.orderId)).data;
+        return resource.data.status == 'AVAILABLE'
+          && !('deliveryWorkerId' in resource.data.keys())
+          && isAvailableWorker(request.auth.uid)
+          && request.resource.data.status == 'DELIVERY_ASSIGNED'
+          && request.resource.data.deliveryWorkerId == request.auth.uid
+          && request.resource.data.assignedAt == request.time
+          && request.resource.data.updatedAt == request.time
+          && order.orderStatus == 'DELIVERY_ASSIGNED'
+          && order.deliveryTaskId == taskId
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['status', 'deliveryWorkerId', 'assignedAt', 'updatedAt']);
       }
 
       /**
@@ -609,19 +787,60 @@ service cloud.firestore {
        */
       function validTaskTransition(from, to) {
         return (from == 'AVAILABLE'          && to == 'DELIVERY_ASSIGNED')
-            || (from == 'DELIVERY_ASSIGNED' && to in ['PICKED_UP', 'DELIVERY_FAILED'])
-            || (from == 'PICKED_UP'         && to in ['OUT_FOR_DELIVERY', 'DELIVERY_FAILED'])
+            || (from == 'DELIVERY_ASSIGNED' && to == 'PICKED_UP')
+            || (from == 'PICKED_UP'         && to == 'OUT_FOR_DELIVERY')
             || (from == 'OUT_FOR_DELIVERY'  && to in ['DELIVERED', 'DELIVERY_FAILED']);
       }
 
       function validWorkerAdvance() {
-        return isWorker()
-          && resource.data.deliveryWorkerId == request.auth.uid
+        let changes = request.resource.data.diff(resource.data).affectedKeys();
+        let order = getAfter(orderPath(resource.data.orderId)).data;
+        return resource.data.deliveryWorkerId == request.auth.uid
           && validTaskTransition(resource.data.status, request.resource.data.status)
-          && request.resource.data.diff(resource.data).affectedKeys()
+          && order.deliveryTaskId == taskId
+          && order.orderStatus == orderStatusForTask(request.resource.data.status)
+          && request.resource.data.updatedAt == request.time
+          && (request.resource.data.status == 'PICKED_UP'
+              ? request.resource.data.pickedUpAt == request.time
+              : !changes.hasAny(['pickedUpAt']))
+          && (request.resource.data.status == 'OUT_FOR_DELIVERY'
+              ? request.resource.data.outForDeliveryAt == request.time
+              : !changes.hasAny(['outForDeliveryAt']))
+          && (request.resource.data.status == 'DELIVERED'
+              ? request.resource.data.deliveredAt == request.time
+              : !changes.hasAny(['deliveredAt']))
+          && (request.resource.data.status == 'DELIVERY_FAILED'
+              ? (request.resource.data.failedAt == request.time
+                  && request.resource.data.failureReason is string
+                  && request.resource.data.failureReason.size() >= 3
+                  && request.resource.data.failureReason.size() <= 250)
+              : !changes.hasAny(['failedAt', 'failureReason', 'failureNotes', 'failureAt']))
+          && changes
                .hasOnly([
-                 'status', 'failureReason', 'failureNotes', 'failureAt', 'updatedAt'
+                 'status', 'failureReason', 'failureNotes', 'updatedAt',
+                 'pickedUpAt', 'outForDeliveryAt', 'deliveredAt', 'failedAt'
                ]);
+      }
+
+      function validDeliveryTaskCreate(taskId) {
+        return readyTaskMatchesOrder(taskId)
+          && request.resource.data.keys().hasOnly([
+               'orderId', 'shopId', 'status', 'pickupLocation', 'deliveryLocation',
+               'distance', 'deliveryFee', 'createdAt', 'updatedAt'
+             ])
+          && request.resource.data.keys().hasAll([
+               'orderId', 'shopId', 'status', 'pickupLocation', 'deliveryLocation',
+               'distance', 'deliveryFee', 'createdAt', 'updatedAt'
+             ])
+          && request.resource.data.orderId is string
+          && request.resource.data.pickupLocation is map
+          && request.resource.data.deliveryLocation is map
+          && request.resource.data.distance is number
+          && request.resource.data.distance > 0
+          && request.resource.data.deliveryFee is number
+          && request.resource.data.deliveryFee >= 0
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
       }
     }
 
@@ -630,33 +849,14 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     match /payments/{paymentId} {
       /**
-       * Payments are readable by the customer who paid, the shop that received
-       * them, and admins. There is no client-side create or update: gateway
-       * callbacks are written by Cloud Functions using the Admin SDK, which
-       * bypasses these rules.
+       * Payment records contain provider session identifiers and are only
+       * readable by admins. Customer and retailer views use the safe payment
+       * method/status copied onto the order. There is no client-side write:
+       * the trusted server is the only payment reconciler.
        */
-      allow read: if isAdmin()
-                  || (isSignedIn() && getOrderCustomerId(resource.data.orderId)
-                      == request.auth.uid)
-                  || (isRetailer() && ownsShop(getOrderShopId(resource.data.orderId)));
+      allow read: if isAdmin();
 
       allow write: if false;
-    }
-
-    function getOrderDoc(orderId) {
-      return get(/databases/$(database)/documents/orders/$(orderId));
-    }
-
-    function getOrderCustomerId(orderId) {
-      return exists(/databases/$(database)/documents/orders/$(orderId))
-        ? getOrderDoc(orderId).data.customerId
-        : null;
-    }
-
-    function getOrderShopId(orderId) {
-      return exists(/databases/$(database)/documents/orders/$(orderId))
-        ? getOrderDoc(orderId).data.shopId
-        : null;
     }
 
     // -----------------------------------------------------------------------

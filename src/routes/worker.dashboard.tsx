@@ -12,6 +12,9 @@ import { SHOP_BY_ID } from "@/data/demo";
 import { useWorkerAuth } from "@/lib/workerAuth";
 import { useWorkerStore } from "@/lib/workerStore";
 import { formatPrice } from "@/lib/geo";
+import { toast } from "sonner";
+import { useState } from "react";
+import { isFirebaseActive } from "@/lib/firebase";
 
 export const Route = createFileRoute("/worker/dashboard")({
   head: () => ({ meta: [{ title: "Delivery Worker Dashboard — SHOPRi8" }] }),
@@ -21,6 +24,7 @@ export const Route = createFileRoute("/worker/dashboard")({
 function WorkerDashboard() {
   const { user, setAvailable } = useWorkerAuth();
   const { tasks, orders, loading, error } = useWorkerStore();
+  const [availabilitySaving, setAvailabilitySaving] = useState(false);
 
   if (loading) {
     return (
@@ -81,8 +85,18 @@ function WorkerDashboard() {
             role="switch"
             aria-checked={Boolean(user?.available)}
             aria-label="Available for delivery tasks"
-            onClick={() => setAvailable(!user?.available)}
-            className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${user?.available ? "bg-primary" : "bg-muted"}`}
+            disabled={availabilitySaving}
+            onClick={() => {
+              setAvailabilitySaving(true);
+              void setAvailable(!user?.available)
+                .catch((cause: unknown) =>
+                  toast.error("Could not update availability", {
+                    description: cause instanceof Error ? cause.message : "Please try again.",
+                  }),
+                )
+                .finally(() => setAvailabilitySaving(false));
+            }}
+            className={`relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-50 ${user?.available ? "bg-primary" : "bg-muted"}`}
           >
             <span
               className={`absolute left-0 top-1 h-5 w-5 rounded-full bg-primary-foreground shadow-sm transition-transform ${user?.available ? "translate-x-6" : "translate-x-1"}`}
@@ -108,9 +122,9 @@ function WorkerDashboard() {
         />
         <Metric
           icon={CircleDollarSign}
-          label="Demo Earnings"
+          label={isFirebaseActive ? "Earnings" : "Demo Earnings"}
           value={formatPrice(demoEarnings)}
-          detail="Illustrative local data"
+          detail={isFirebaseActive ? "Based on completed deliveries" : "Illustrative local data"}
         />
       </section>
 
@@ -134,13 +148,16 @@ function WorkerDashboard() {
           activeTasks.slice(0, 1).map((task) => {
             const order = orders.find((item) => item.id === task.orderId);
             if (!order) return null;
-            const shop = SHOP_BY_ID[task.shopId];
             return (
               <div key={task.id} className="space-y-3">
                 <DeliveryTaskCard
                   task={task}
                   order={order}
-                  shopAddress={shop?.address ?? "Pickup location unavailable"}
+                  shopAddress={
+                    isFirebaseActive
+                      ? `Pickup coordinates: ${task.pickupLocation.latitude.toFixed(5)}, ${task.pickupLocation.longitude.toFixed(5)}`
+                      : (SHOP_BY_ID[task.shopId]?.address ?? "Pickup location unavailable")
+                  }
                 />
                 <Link
                   to="/worker/tasks/$taskId"
@@ -160,7 +177,9 @@ function WorkerDashboard() {
           <div>
             <h2 className="font-display text-lg font-semibold">Available Delivery Tasks</h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Local demo tasks based on ready orders
+              {isFirebaseActive
+                ? "Available from the live delivery queue"
+                : "Local demo tasks based on ready orders"}
             </p>
           </div>
           <Link
@@ -179,13 +198,16 @@ function WorkerDashboard() {
             {availableTasks.slice(0, 4).map((task) => {
               const order = orders.find((item) => item.id === task.orderId);
               if (!order) return null;
-              const shop = SHOP_BY_ID[task.shopId];
               return (
                 <DeliveryTaskCard
                   key={task.id}
                   task={task}
                   order={order}
-                  shopAddress={shop?.address ?? "Pickup location unavailable"}
+                  shopAddress={
+                    isFirebaseActive
+                      ? `Pickup coordinates: ${task.pickupLocation.latitude.toFixed(5)}, ${task.pickupLocation.longitude.toFixed(5)}`
+                      : (SHOP_BY_ID[task.shopId]?.address ?? "Pickup location unavailable")
+                  }
                 />
               );
             })}

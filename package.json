@@ -13,6 +13,7 @@
     "emulators": "firebase emulators:start",
     "emulators:exec": "firebase emulators:exec \"node scripts/verify-rules.mjs\"",
     "verify:rules": "node scripts/verify-rules.mjs",
+    "test:payments": "node --experimental-strip-types --test tests/demo-payment.test.mjs",
     "provision:user-capability": "node scripts/provision-user-capability.mjs",
     "firebase:deploy": "firebase deploy --only firestore:rules,firestore:indexes,storage"
   },
@@ -61,6 +62,7 @@
     "input-otp": "^1.4.2",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.575.0",
+    "qrcode.react": "^4.2.0",
     "react": "^19.2.0",
     "react-day-picker": "^9.14.0",
     "react-dom": "^19.2.0",

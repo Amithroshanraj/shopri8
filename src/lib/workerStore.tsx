@@ -1,8 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DEMO_DELIVERY_ORDERS, DEMO_DELIVERY_TASKS, DEMO_WORKER_ID } from "@/data/worker";
 import { SHOP_BY_ID } from "@/data/demo";
 import { announceOrdersUpdated, ORDERS_STORAGE_KEY, ORDERS_UPDATED_EVENT } from "./orderSync";
 import type { DeliveryTask, DeliveryTaskStatus, Order, OrderStatus } from "./types";
+import { isBrowser, isFirebaseActive } from "./firebase";
+import { deliveryRepository, orderRepository } from "./repositories";
+import { useWorkerAuth } from "./workerAuth";
 
 const DELIVERY_TASKS_STORAGE_KEY = "shopri8.delivery.tasks.v1";
 const DELIVERY_TASKS_UPDATED_EVENT = "shopri8:delivery-tasks-updated";
@@ -18,8 +22,8 @@ const STATUS_FROM_TASK: Partial<Record<DeliveryTaskStatus, OrderStatus>> = {
 
 const ALLOWED_TASK_TRANSITIONS: Partial<Record<DeliveryTaskStatus, DeliveryTaskStatus[]>> = {
   AVAILABLE: ["DELIVERY_ASSIGNED"],
-  DELIVERY_ASSIGNED: ["PICKED_UP", "DELIVERY_FAILED"],
-  PICKED_UP: ["OUT_FOR_DELIVERY", "DELIVERY_FAILED"],
+  DELIVERY_ASSIGNED: ["PICKED_UP"],
+  PICKED_UP: ["OUT_FOR_DELIVERY"],
   OUT_FOR_DELIVERY: ["DELIVERED", "DELIVERY_FAILED"],
 };
 
@@ -198,8 +202,97 @@ function hydrateWorkerStore() {
 
 export function useWorkerStore() {
   const [state, setState] = useState(storeState);
+  const auth = useWorkerAuth();
+  const queryClient = useQueryClient();
+  const firebaseEnabled = isFirebaseActive && isBrowser && !!auth.user;
+  const workerId = auth.user?.workerId;
+  const availableTasksQueryKey = useMemo(() => ["delivery-tasks", "available"] as const, []);
+  const assignedTasksQueryKey = useMemo(
+    () => ["delivery-tasks", "worker", workerId ?? ""] as const,
+    [workerId],
+  );
+  const [availableTasksLiveError, setAvailableTasksLiveError] = useState<string | null>(null);
+  const [assignedTasksLiveError, setAssignedTasksLiveError] = useState<string | null>(null);
+  const availableTasks = useQuery({
+    queryKey: availableTasksQueryKey,
+    queryFn: async () => {
+      const result = await deliveryRepository.listAvailable();
+      if (!result.ok) throw new Error(result.message);
+      return result.data;
+    },
+    enabled: firebaseEnabled,
+  });
+  const assignedTasks = useQuery({
+    queryKey: assignedTasksQueryKey,
+    queryFn: async () => {
+      const result = await deliveryRepository.listForWorker(auth.user!.workerId);
+      if (!result.ok) throw new Error(result.message);
+      return result.data;
+    },
+    enabled: firebaseEnabled,
+  });
+  useEffect(() => {
+    setAvailableTasksLiveError(null);
+    setAssignedTasksLiveError(null);
+    if (!firebaseEnabled || !workerId) return;
+    const unsubscribeAvailable = deliveryRepository.subscribeAvailable(
+      (tasks) => {
+        setAvailableTasksLiveError(null);
+        void queryClient.cancelQueries({ queryKey: availableTasksQueryKey, exact: true });
+        queryClient.setQueryData(availableTasksQueryKey, tasks);
+      },
+      (error) => setAvailableTasksLiveError(error.message),
+    );
+    const unsubscribeAssigned = deliveryRepository.subscribeForWorker(
+      workerId,
+      (tasks) => {
+        setAssignedTasksLiveError(null);
+        void queryClient.cancelQueries({ queryKey: assignedTasksQueryKey, exact: true });
+        queryClient.setQueryData(assignedTasksQueryKey, tasks);
+      },
+      (error) => setAssignedTasksLiveError(error.message),
+    );
+    return () => {
+      unsubscribeAvailable();
+      unsubscribeAssigned();
+    };
+  }, [assignedTasksQueryKey, availableTasksQueryKey, firebaseEnabled, queryClient, workerId]);
+  const firebaseTasks = [
+    ...(auth.user?.available ? (availableTasks.data ?? []) : []),
+    ...(assignedTasks.data ?? []),
+  ].filter((task, index, tasks) => tasks.findIndex((entry) => entry.id === task.id) === index);
+  const taskIdsKey = firebaseTasks
+    .map((task) => task.orderId)
+    .sort()
+    .join(",");
+  const taskRevision = firebaseTasks
+    .map((task) => `${task.id}:${task.status}:${task.updatedAt}`)
+    .sort()
+    .join("|");
+  const firebaseOrdersQueryKey = useMemo(
+    () => ["orders", "delivery-tasks", taskIdsKey] as const,
+    [taskIdsKey],
+  );
+  const firebaseOrders = useQuery({
+    queryKey: firebaseOrdersQueryKey,
+    queryFn: async () => {
+      const results = await Promise.all(
+        firebaseTasks.map((task) => orderRepository.get(task.orderId)),
+      );
+      const failure = results.find((result) => !result.ok);
+      if (failure && !failure.ok) throw new Error(failure.message);
+      return results.flatMap((result) => (result.ok && result.data ? [result.data] : []));
+    },
+    enabled: firebaseEnabled && firebaseTasks.length > 0,
+  });
+  useEffect(() => {
+    if (firebaseEnabled && firebaseTasks.length > 0) {
+      void queryClient.invalidateQueries({ queryKey: ["orders", "delivery-tasks"] });
+    }
+  }, [firebaseEnabled, queryClient, taskRevision, firebaseTasks.length]);
 
   useEffect(() => {
+    if (isFirebaseActive) return;
     const listener = (next: WorkerStoreState) => setState(next);
     listeners.add(listener);
     setState(storeState);
@@ -223,12 +316,38 @@ export function useWorkerStore() {
   }, []);
 
   const transitionTask = useCallback(
-    (
+    async (
       taskId: string,
       newStatus: DeliveryTaskStatus,
       workerId: string,
       failure?: { reason: string; notes: string },
-    ) => {
+    ): Promise<boolean> => {
+      if (isFirebaseActive) {
+        const task = firebaseTasks.find((entry) => entry.id === taskId);
+        if (!task || workerId !== auth.user?.workerId) return false;
+        if (task.status === "AVAILABLE" && newStatus === "DELIVERY_ASSIGNED") {
+          const result = await deliveryRepository.claim(taskId, workerId);
+          if (!result.ok) throw new Error(result.message);
+        } else {
+          const result = await deliveryRepository.advance(
+            task,
+            newStatus,
+            newStatus === "DELIVERY_FAILED" && failure
+              ? {
+                  failureReason: failure.reason,
+                  failureNotes: failure.notes,
+                  failedAt: new Date().toISOString(),
+                }
+              : {},
+          );
+          if (!result.ok) throw new Error(result.message);
+        }
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["delivery-tasks"] }),
+          queryClient.invalidateQueries({ queryKey: ["orders"] }),
+        ]);
+        return true;
+      }
       const task = storeState.tasks.find((item) => item.id === taskId);
       const order = task && storeState.orders.find((item) => item.id === task.orderId);
       if (!task || !order || !ALLOWED_TASK_TRANSITIONS[task.status]?.includes(newStatus))
@@ -236,7 +355,12 @@ export function useWorkerStore() {
       if (workerId !== DEMO_WORKER_ID) return false;
       if (order.orderStatus !== STATUS_FROM_TASK[task.status]) return false;
       if (task.status === "AVAILABLE") {
-        if (task.deliveryWorkerId || order.orderStatus !== "READY_FOR_PICKUP") return false;
+        if (
+          !auth.user?.available ||
+          task.deliveryWorkerId ||
+          order.orderStatus !== "READY_FOR_PICKUP"
+        )
+          return false;
       } else if (task.deliveryWorkerId !== workerId) {
         return false;
       }
@@ -286,8 +410,31 @@ export function useWorkerStore() {
       notifyListeners();
       return true;
     },
-    [],
+    [auth.user?.available, auth.user?.workerId, firebaseTasks, queryClient],
   );
 
-  return { ...state, transitionTask };
+  if (isFirebaseActive) {
+    return {
+      orders: firebaseOrders.data ?? [],
+      tasks: firebaseTasks,
+      loading:
+        !auth.user ||
+        availableTasks.isPending ||
+        assignedTasks.isPending ||
+        (firebaseTasks.length > 0 && firebaseOrders.isPending),
+      error:
+        availableTasks.error?.message ??
+        availableTasksLiveError ??
+        assignedTasks.error?.message ??
+        assignedTasksLiveError ??
+        firebaseOrders.error?.message ??
+        null,
+      transitionTask,
+    };
+  }
+  return {
+    ...state,
+    tasks: state.tasks.filter((task) => task.status !== "AVAILABLE" || auth.user?.available),
+    transitionTask,
+  };
 }

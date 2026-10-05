@@ -76,68 +76,67 @@ function RetailerOrderDetails() {
   const isRejected = order.orderStatus === "REJECTED";
   const isCancelled = order.orderStatus === "CANCELLED";
   const isDelivered = order.orderStatus === "DELIVERED";
+  const canProcessOrder = order.paymentMethod === "COD" || order.paymentStatus === "PAID";
 
   // Actions
-  const handleStartReview = () => {
+  const performOrderAction = async (
+    status: OrderStatus,
+    title: string,
+    description: string,
+    rejectionReason?: string,
+  ) => {
     setIsProcessing(true);
     try {
-      updateOrderStatus(order.id, "RETAILER_REVIEW");
-      toast.success("Order Under Review", {
-        description: `Order ${order.id} is ready for an accept or reject decision.`,
+      await updateOrderStatus(order.id, status, rejectionReason);
+      toast.success(title, { description });
+      return true;
+    } catch (error) {
+      toast.error("Could not update order", {
+        description: error instanceof Error ? error.message : "Please refresh and try again.",
       });
+      return false;
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleAccept = () => {
-    setIsProcessing(true);
-    try {
-      updateOrderStatus(order.id, "ACCEPTED");
-      toast.success("Order Accepted", {
-        description: `Order ${order.id} is now accepted and queued for preparation.`,
-      });
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+  const handleStartReview = () =>
+    performOrderAction(
+      "RETAILER_REVIEW",
+      "Order Under Review",
+      `Order ${order.id} is ready for an accept or reject decision.`,
+    );
 
-  const handleStartPreparing = () => {
-    setIsProcessing(true);
-    try {
-      updateOrderStatus(order.id, "PREPARING");
-      toast.success("Preparation Started", {
-        description: `Order ${order.id} is now being packed.`,
-      });
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+  const handleAccept = () =>
+    performOrderAction(
+      "ACCEPTED",
+      "Order Accepted",
+      `Order ${order.id} is now accepted and queued for preparation.`,
+    );
 
-  const handleMarkReady = () => {
-    setIsProcessing(true);
-    try {
-      updateOrderStatus(order.id, "READY_FOR_PICKUP");
-      toast.success("Ready for Pickup", {
-        description: "Delivery partner will be assigned for pickup.",
-      });
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+  const handleStartPreparing = () =>
+    performOrderAction(
+      "PREPARING",
+      "Preparation Started",
+      `Order ${order.id} is now being packed.`,
+    );
 
-  const handleRejectConfirm = () => {
-    setIsProcessing(true);
-    try {
-      const reason = rejectReason.trim() || "Item unavailable or shop unable to fulfill";
-      updateOrderStatus(order.id, "REJECTED", reason);
-      toast.error("Order Rejected", {
-        description: "Customer has been notified of the order rejection.",
-      });
-      setShowRejectModal(false);
-    } finally {
-      setIsProcessing(false);
-    }
+  const handleMarkReady = () =>
+    performOrderAction(
+      "READY_FOR_PICKUP",
+      "Ready for Pickup",
+      "A delivery task has been created for this order.",
+    );
+
+  const handleRejectConfirm = async () => {
+    const reason = rejectReason.trim() || "Item unavailable or shop unable to fulfill";
+    const succeeded = await performOrderAction(
+      "REJECTED",
+      "Order Rejected",
+      "Customer has been notified of the order rejection.",
+      reason,
+    );
+    if (succeeded) setShowRejectModal(false);
   };
 
   // Find step progress
@@ -314,99 +313,110 @@ function RetailerOrderDetails() {
               Retailer Actions
             </h3>
 
-            {isPlaced && (
-              <button
-                onClick={handleStartReview}
-                disabled={isProcessing}
-                className="press w-full rounded-2xl bg-primary py-3 px-4 text-sm font-semibold text-primary-foreground shadow-md transition-all hover:bg-primary/90 disabled:opacity-50"
-              >
-                Review Order
-              </button>
-            )}
-
-            {isInReview && (
-              <div className="flex flex-col sm:flex-row gap-3">
-                <button
-                  onClick={handleAccept}
-                  disabled={isProcessing}
-                  className="press flex-1 rounded-2xl bg-primary py-3 px-4 text-sm font-semibold text-primary-foreground shadow-md transition-all hover:bg-primary/90 disabled:opacity-50"
-                >
-                  Accept Order
-                </button>
-                <button
-                  onClick={() => setShowRejectModal(true)}
-                  disabled={isProcessing}
-                  className="press rounded-2xl border border-destructive/40 bg-destructive/10 py-3 px-6 text-sm font-semibold text-destructive hover:bg-destructive/20 transition-all disabled:opacity-50"
-                >
-                  Reject Order
-                </button>
-              </div>
-            )}
-
-            {isAccepted && (
-              <button
-                onClick={handleStartPreparing}
-                disabled={isProcessing}
-                className="press w-full rounded-2xl bg-primary py-3 px-4 text-sm font-semibold text-primary-foreground shadow-md transition-all hover:bg-primary/90 disabled:opacity-50"
-              >
-                Start Preparing
-              </button>
-            )}
-
-            {isPreparing && (
-              <button
-                onClick={handleMarkReady}
-                disabled={isProcessing}
-                className="press w-full rounded-2xl bg-success py-3 px-4 text-sm font-semibold text-success-foreground shadow-md transition-all hover:bg-success/90 disabled:opacity-50"
-              >
-                Mark Ready for Pickup
-              </button>
-            )}
-
-            {isReady && (
-              <div className="rounded-2xl border border-primary/30 bg-primary/10 p-4 text-center">
-                <Truck className="h-6 w-6 text-soft-violet mx-auto mb-1.5" />
-                <h4 className="text-sm font-semibold text-foreground">Ready for Pickup</h4>
-                <p className="mt-1 text-xs text-muted-foreground max-w-sm mx-auto">
-                  Order is packed and ready. Waiting for a delivery worker to accept assignment and
-                  arrive for pickup.
-                </p>
-                <p className="mt-2 text-[0.7rem] text-muted-foreground">
-                  (Retailer does not control delivery dispatch — delivery worker manages transit)
-                </p>
-              </div>
-            )}
-
-            {(order.orderStatus === "PICKED_UP" || order.orderStatus === "OUT_FOR_DELIVERY") && (
-              <div className="rounded-2xl border border-soft-violet/30 bg-soft-violet/10 p-4 text-center">
-                <Truck className="h-6 w-6 text-soft-violet mx-auto mb-1.5" />
-                <h4 className="text-sm font-semibold text-foreground">In Transit</h4>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Order has been picked up by the delivery partner and is en route to customer.
-                </p>
-              </div>
-            )}
-
-            {isDelivered && (
-              <div className="rounded-2xl border border-success/30 bg-success/10 p-4 text-center">
-                <Check className="h-6 w-6 text-success mx-auto mb-1.5" />
-                <h4 className="text-sm font-semibold text-success">Delivered Successfully</h4>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  This order was successfully fulfilled and delivered.
-                </p>
-              </div>
-            )}
-
-            {isRejected && (
-              <p className="text-xs text-muted-foreground text-center py-2">
-                This order was rejected. No further actions can be taken.
+            {!canProcessOrder ? (
+              <p className="rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
+                Waiting for the demo payment confirmation. Retailer actions unlock only after
+                payment is marked paid.
               </p>
-            )}
+            ) : (
+              <>
+                {isPlaced && (
+                  <button
+                    onClick={handleStartReview}
+                    disabled={isProcessing}
+                    className="press w-full rounded-2xl bg-primary py-3 px-4 text-sm font-semibold text-primary-foreground shadow-md transition-all hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    Review Order
+                  </button>
+                )}
 
-            {isCancelled && (
-              <p className="text-xs text-muted-foreground text-center py-2">
-                This order was cancelled by customer.
-              </p>
+                {isInReview && (
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <button
+                      onClick={handleAccept}
+                      disabled={isProcessing}
+                      className="press flex-1 rounded-2xl bg-primary py-3 px-4 text-sm font-semibold text-primary-foreground shadow-md transition-all hover:bg-primary/90 disabled:opacity-50"
+                    >
+                      Accept Order
+                    </button>
+                    <button
+                      onClick={() => setShowRejectModal(true)}
+                      disabled={isProcessing}
+                      className="press rounded-2xl border border-destructive/40 bg-destructive/10 py-3 px-6 text-sm font-semibold text-destructive hover:bg-destructive/20 transition-all disabled:opacity-50"
+                    >
+                      Reject Order
+                    </button>
+                  </div>
+                )}
+
+                {isAccepted && (
+                  <button
+                    onClick={handleStartPreparing}
+                    disabled={isProcessing}
+                    className="press w-full rounded-2xl bg-primary py-3 px-4 text-sm font-semibold text-primary-foreground shadow-md transition-all hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    Start Preparing
+                  </button>
+                )}
+
+                {isPreparing && (
+                  <button
+                    onClick={handleMarkReady}
+                    disabled={isProcessing}
+                    className="press w-full rounded-2xl bg-success py-3 px-4 text-sm font-semibold text-success-foreground shadow-md transition-all hover:bg-success/90 disabled:opacity-50"
+                  >
+                    Mark Ready for Pickup
+                  </button>
+                )}
+
+                {isReady && (
+                  <div className="rounded-2xl border border-primary/30 bg-primary/10 p-4 text-center">
+                    <Truck className="h-6 w-6 text-soft-violet mx-auto mb-1.5" />
+                    <h4 className="text-sm font-semibold text-foreground">Ready for Pickup</h4>
+                    <p className="mt-1 text-xs text-muted-foreground max-w-sm mx-auto">
+                      Order is packed and ready. Waiting for a delivery worker to accept assignment
+                      and arrive for pickup.
+                    </p>
+                    <p className="mt-2 text-[0.7rem] text-muted-foreground">
+                      (Retailer does not control delivery dispatch — delivery worker manages
+                      transit)
+                    </p>
+                  </div>
+                )}
+
+                {(order.orderStatus === "PICKED_UP" ||
+                  order.orderStatus === "OUT_FOR_DELIVERY") && (
+                  <div className="rounded-2xl border border-soft-violet/30 bg-soft-violet/10 p-4 text-center">
+                    <Truck className="h-6 w-6 text-soft-violet mx-auto mb-1.5" />
+                    <h4 className="text-sm font-semibold text-foreground">In Transit</h4>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Order has been picked up by the delivery partner and is en route to customer.
+                    </p>
+                  </div>
+                )}
+
+                {isDelivered && (
+                  <div className="rounded-2xl border border-success/30 bg-success/10 p-4 text-center">
+                    <Check className="h-6 w-6 text-success mx-auto mb-1.5" />
+                    <h4 className="text-sm font-semibold text-success">Delivered Successfully</h4>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      This order was successfully fulfilled and delivered.
+                    </p>
+                  </div>
+                )}
+
+                {isRejected && (
+                  <p className="text-xs text-muted-foreground text-center py-2">
+                    This order was rejected. No further actions can be taken.
+                  </p>
+                )}
+
+                {isCancelled && (
+                  <p className="text-xs text-muted-foreground text-center py-2">
+                    This order was cancelled by customer.
+                  </p>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -463,7 +473,7 @@ function RetailerOrderDetails() {
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Method:</span>
                 <span className="font-semibold text-foreground">
-                  {order.paymentMethod === "COD" ? "Cash on Delivery" : "Online Payment (Cashfree)"}
+                  {order.paymentMethod === "COD" ? "Cash on Delivery" : "UPI / QR Demo"}
                 </span>
               </div>
               <div className="flex justify-between">

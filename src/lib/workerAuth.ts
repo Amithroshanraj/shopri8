@@ -1,14 +1,16 @@
-import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DEMO_WORKER_ID } from "@/data/worker";
 import { useDemoSession } from "@/lib/demoAuth";
 import { getCurrentUser, setDisplayName } from "@/lib/firebase";
-import { userRepository } from "@/lib/repositories/userRepository";
+import { userRepository, type UserProfile } from "@/lib/repositories/userRepository";
 import {
   firebaseIsActive,
   signInForPortal,
   signOutOfFirebase,
   useFirebaseAuthSession,
 } from "@/lib/auth";
+import { isBrowser } from "@/lib/firebase";
 import { toAuthErrorMessage } from "@/lib/auth/authErrors";
 import {
   readWorkerPreferences,
@@ -71,6 +73,7 @@ export const DEFAULT_DEMO_WORKER: WorkerUser = {
 export function useWorkerAuth() {
   const demo = useDemoSession("deliveryWorker");
   const firebase = useFirebaseAuthSession();
+  const queryClient = useQueryClient();
   const useFirebase = firebaseIsActive();
   const [error, setError] = useState<string | null>(null);
 
@@ -83,6 +86,29 @@ export function useWorkerAuth() {
   const identity =
     useFirebase && firebase.hasCapability("delivery_worker") ? firebase.identity : null;
   const uid = identity?.uid ?? null;
+  const firebaseProfile = useQuery({
+    queryKey: ["worker-profile", uid ?? ""],
+    queryFn: async () => {
+      if (!uid) return null;
+      const result = await userRepository.get(uid);
+      if (!result.ok) throw new Error(result.message);
+      return result.data;
+    },
+    enabled: useFirebase && isBrowser && !!uid,
+  });
+  useEffect(() => {
+    if (!useFirebase || !isBrowser || !uid) return;
+    return userRepository.subscribe(
+      uid,
+      (profile) => {
+        setError(null);
+        const queryKey = ["worker-profile", uid] as const;
+        void queryClient.cancelQueries({ queryKey, exact: true });
+        queryClient.setQueryData(queryKey, profile);
+      },
+      (cause) => setError(cause.message),
+    );
+  }, [queryClient, uid, useFirebase]);
   const preferences = uid ? readWorkerPreferences(uid) : null;
 
   const demoMetadata = useMemo(() => demo.session?.metadata ?? {}, [demo.session]);
@@ -107,7 +133,9 @@ export function useWorkerAuth() {
               displayName: identity.displayName || "Delivery Partner",
               phoneNumber: identity.phone ?? "",
               deliveryModes: preferences?.deliveryModes ?? [...DEFAULT_DEMO_WORKER.deliveryModes],
-              available: preferences?.available ?? true,
+              available: firebaseProfile.isSuccess
+                ? (firebaseProfile.data?.available ?? true)
+                : false,
             }
           : null
         : demo.session
@@ -121,7 +149,16 @@ export function useWorkerAuth() {
               available: demoMetadata["available"] !== false,
             }
           : null,
-    [demo.session, demoDeliveryModes, demoMetadata, identity, preferences, useFirebase],
+    [
+      demo.session,
+      demoDeliveryModes,
+      demoMetadata,
+      firebaseProfile.data?.available,
+      firebaseProfile.isSuccess,
+      identity,
+      preferences,
+      useFirebase,
+    ],
   );
 
   const login = async ({ email, password }: WorkerCredentials) => {
@@ -196,22 +233,28 @@ export function useWorkerAuth() {
   );
 
   const setAvailable = useCallback(
-    (available: boolean) => {
+    async (available: boolean) => {
       if (!user) return;
       if (!useFirebase) {
         demo.updateSession({ metadata: { ...demoMetadata, available } });
         return;
       }
-      writeWorkerPreferences(user.workerId, { available });
+      const result = await userRepository.setWorkerAvailability(user.workerId, available);
+      if (!result.ok) throw new Error(result.message);
+      queryClient.setQueryData(
+        ["worker-profile", user.workerId],
+        (profile: UserProfile | null | undefined) =>
+          profile ? { ...profile, available } : profile,
+      );
     },
-    [demo, demoMetadata, useFirebase, user],
+    [demo, demoMetadata, queryClient, useFirebase, user],
   );
 
   return {
     user,
     loading: useFirebase ? firebase.isInitialising : demo.loading,
     isAuthenticated: useFirebase ? identity !== null : demo.isAuthenticated,
-    error,
+    error: error ?? firebaseProfile.error?.message ?? null,
     login,
     logout,
     updateProfile,

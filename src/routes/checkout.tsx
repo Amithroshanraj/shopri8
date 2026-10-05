@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Banknote, CreditCard, Home, MapPin, Plus, ShoppingBag, X } from "lucide-react";
+import { Banknote, Home, MapPin, Plus, QrCode, ShoppingBag, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { AppShell, EmptyState, PageHeader } from "@/components/layout/AppShell";
@@ -7,7 +7,13 @@ import { Bill } from "./cart";
 import { useCart } from "@/lib/cart";
 import { formatPrice } from "@/lib/geo";
 import { useAddresses, useOrders } from "@/lib/store";
-import type { Order } from "@/lib/types";
+import { isFirebaseActive } from "@/lib/firebase";
+import {
+  clearDemoCheckoutIdempotencyKey,
+  demoPaymentRequest,
+  getDemoCheckoutIdempotencyKey,
+} from "@/lib/demoPaymentClient";
+import type { Order, PaymentMethod } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/checkout")({
@@ -27,10 +33,12 @@ type LabelType = "Home" | "Work" | "Other";
 function Checkout() {
   const cart = useCart();
   const { addresses, add } = useAddresses();
-  const { place } = useOrders();
+  const { place, placeFirebaseOrder } = useOrders();
   const navigate = useNavigate();
   const [addressId, setAddressId] = useState<string | null>(null);
   const [showAddAddress, setShowAddAddress] = useState(false);
+  const [isPlacingOrder, setIsPlacingOrder] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("COD");
   const selected = addresses.find((a) => a.id === addressId) ?? addresses.find((a) => a.isDefault);
 
   // Add address form state
@@ -60,7 +68,7 @@ function Checkout() {
     setSelectedLocation(null);
   };
 
-  const handleAddAddress = (e: React.FormEvent) => {
+  const handleAddAddress = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!recipientName.trim()) {
@@ -96,10 +104,17 @@ function Checkout() {
       isDefault,
     };
 
-    add(addressData);
-    toast.success("Address saved");
-    resetAddForm();
-    setShowAddAddress(false);
+    void add(addressData, selectedLocation ?? undefined)
+      .then(() => {
+        toast.success("Address saved");
+        resetAddForm();
+        setShowAddAddress(false);
+      })
+      .catch((error: unknown) => {
+        toast.error("Could not save address", {
+          description: error instanceof Error ? error.message : "Please try again.",
+        });
+      });
   };
 
   const handleLocationSelect = (location: {
@@ -125,35 +140,97 @@ function Checkout() {
     );
   }
 
-  const placeOrder = () => {
-    if (!selected || !cart.shopId) return;
-    const now = new Date().toISOString();
-    const order: Order = {
-      id: `SR8-${Date.now().toString(36).toUpperCase()}`,
-      customerId: "local",
-      shopId: cart.shopId,
-      shopName: cart.shopName ?? "Shop",
-      items: cart.lines.map((l) => ({
-        productId: l.productId,
-        name: l.name,
-        price: l.price,
-        quantity: l.quantity,
-      })),
-      subtotal: cart.subtotal,
-      deliveryFee: cart.deliveryFee,
-      totalAmount: cart.total,
-      deliveryAddress: selected,
-      paymentMethod: "COD",
-      paymentStatus: "COD_PENDING",
-      orderStatus: "PLACED",
-      statusHistory: [{ status: "PLACED", at: now }],
-      createdAt: now,
-      updatedAt: now,
-    };
-    place(order);
-    cart.clear();
-    toast.success("Order placed", { description: "The shop will review it shortly." });
-    navigate({ to: "/orders/$orderId", params: { orderId: order.id } });
+  const placeOrder = async () => {
+    if (!selected || !cart.shopId || isPlacingOrder) return;
+    setIsPlacingOrder(true);
+    try {
+      if (isFirebaseActive) {
+        if (paymentMethod === "DEMO_UPI") {
+          const items = cart.lines.map(({ productId, quantity }) => ({ productId, quantity }));
+          const fingerprint = JSON.stringify({
+            shopId: cart.shopId,
+            deliveryAddressId: selected.id,
+            items: [...items].sort((left, right) => left.productId.localeCompare(right.productId)),
+          });
+          const idempotencyKey = getDemoCheckoutIdempotencyKey(fingerprint);
+          const payment = await demoPaymentRequest("create", {
+            idempotencyKey,
+            shopId: cart.shopId,
+            deliveryAddressId: selected.id,
+            items,
+          });
+          cart.clear();
+          clearDemoCheckoutIdempotencyKey();
+          toast.info("Demo payment ready", {
+            description: `No real payment will be processed. Order total: ${formatPrice(payment.amount)}.`,
+          });
+          navigate({ to: "/orders/$orderId", params: { orderId: payment.orderId } });
+          return;
+        }
+        const orderId = await placeFirebaseOrder({
+          shopId: cart.shopId,
+          deliveryAddressId: selected.id,
+          items: cart.lines.map(({ productId, quantity }) => ({ productId, quantity })),
+        });
+        cart.clear();
+        toast.success("Order placed", { description: "The shop will review it shortly." });
+        navigate({ to: "/orders/$orderId", params: { orderId } });
+        return;
+      }
+      const now = new Date().toISOString();
+      const order: Order = {
+        id: `SR8-${Date.now().toString(36).toUpperCase()}`,
+        customerId: "local",
+        shopId: cart.shopId,
+        shopName: cart.shopName ?? "Shop",
+        items: cart.lines.map((l) => ({
+          productId: l.productId,
+          name: l.name,
+          price: l.price,
+          quantity: l.quantity,
+        })),
+        subtotal: cart.subtotal,
+        deliveryFee: cart.deliveryFee,
+        totalAmount: cart.total,
+        deliveryAddress: selected,
+        paymentMethod: "COD",
+        paymentStatus: "COD_PENDING",
+        orderStatus: "PLACED",
+        statusHistory: [{ status: "PLACED", at: now }],
+        createdAt: now,
+        updatedAt: now,
+      };
+      place(order);
+      cart.clear();
+      toast.success("Order placed", { description: "The shop will review it shortly." });
+      navigate({ to: "/orders/$orderId", params: { orderId: order.id } });
+    } catch (error) {
+      toast.error("Could not place your order", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsPlacingOrder(false);
+    }
+  };
+
+  const handleUseDeviceLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error("Location is unavailable", { description: "Enter your address manually." });
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) =>
+        setSelectedLocation({
+          address: address.trim(),
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+        }),
+      () =>
+        toast.error("Could not get your location", {
+          description: "Allow location access and retry.",
+        }),
+      { enableHighAccuracy: true, timeout: 10_000 },
+    );
   };
 
   return (
@@ -219,25 +296,47 @@ function Checkout() {
       <section className="mb-5">
         <h2 className="mb-2 text-sm font-semibold">Payment</h2>
         <div className="space-y-2">
-          <div className="flex items-center gap-3 rounded-2xl glass-2 p-4 ring-1 ring-primary">
+          <button
+            type="button"
+            aria-pressed={paymentMethod === "COD"}
+            onClick={() => setPaymentMethod("COD")}
+            className={cn(
+              "flex w-full items-center gap-3 rounded-2xl p-4 text-left",
+              paymentMethod === "COD" ? "glass-2 ring-1 ring-primary" : "glass-1",
+            )}
+          >
             <Banknote className="h-5 w-5 text-soft-violet" />
             <span className="flex-1 text-sm font-semibold">Cash on delivery</span>
-          </div>
-          <div className="flex items-center gap-3 rounded-2xl glass-1 p-4 opacity-60">
-            <CreditCard className="h-5 w-5" />
-            <span className="flex-1 text-sm">UPI / Card (Cashfree)</span>
-            <span className="text-xs text-muted-foreground">Coming soon</span>
-          </div>
+          </button>
+          {isFirebaseActive && (
+            <button
+              type="button"
+              aria-pressed={paymentMethod === "DEMO_UPI"}
+              onClick={() => setPaymentMethod("DEMO_UPI")}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-2xl p-4 text-left",
+                paymentMethod === "DEMO_UPI" ? "glass-2 ring-1 ring-primary" : "glass-1",
+              )}
+            >
+              <QrCode className="h-5 w-5 text-soft-violet" />
+              <span className="flex-1 text-sm font-semibold">UPI / QR Demo Payment</span>
+              <span className="text-xs text-muted-foreground">Academic Demo</span>
+            </button>
+          )}
         </div>
       </section>
       <Bill subtotal={cart.subtotal} deliveryFee={cart.deliveryFee} total={cart.total} />
       <div className="fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
         <button
-          disabled={!selected}
+          disabled={!selected || isPlacingOrder}
           onClick={placeOrder}
           className="press w-full max-w-md rounded-2xl bg-primary py-4 text-sm font-semibold text-primary-foreground glow-primary disabled:opacity-50"
         >
-          {selected ? `Place order · ${formatPrice(cart.total)}` : "Add an address to continue"}
+          {isPlacingOrder
+            ? "Placing order..."
+            : selected
+              ? `${paymentMethod === "DEMO_UPI" ? "Continue to demo QR" : "Place order"} · ${formatPrice(cart.total)}`
+              : "Add an address to continue"}
         </button>
       </div>
 
@@ -266,16 +365,11 @@ function Checkout() {
                   <button
                     type="button"
                     onClick={() => {
-                      const demoAddress = "12A, Example Street, Chennai";
-                      handleLocationSelect({
-                        address: demoAddress,
-                        latitude: 13.0827,
-                        longitude: 80.2707,
-                      });
+                      handleUseDeviceLocation();
                     }}
                     className="press flex w-full items-center gap-3 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-soft-violet"
                   >
-                    <MapPin className="h-4 w-4" /> Use my current location
+                    <MapPin className="h-4 w-4" /> Use device location
                   </button>
                   <div className="relative">
                     <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

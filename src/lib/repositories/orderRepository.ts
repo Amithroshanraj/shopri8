@@ -16,21 +16,27 @@
  * and from `src/lib/workerStore.tsx`:
  *
  *   READY_FOR_PICKUP -> DELIVERY_ASSIGNED
- *   DELIVERY_ASSIGNED -> PICKED_UP | DELIVERY_FAILED
- *   PICKED_UP -> OUT_FOR_DELIVERY | DELIVERY_FAILED
+ *   DELIVERY_ASSIGNED -> PICKED_UP
+ *   PICKED_UP -> OUT_FOR_DELIVERY
  *   OUT_FOR_DELIVERY -> DELIVERED | DELIVERY_FAILED
  */
 
 import { ORDER_STATUS_FLOW, type Order, type OrderStatus } from "../types";
 import {
+  createCustomerOrder,
   createOrder,
+  fetchAllOrders,
   fetchOrder,
   fetchOrdersForCustomer,
   fetchOrdersForShop,
   isFirebaseActive,
+  subscribeToAllOrders,
+  subscribeToOrdersForCustomer,
+  subscribeToOrdersForShop,
   transitionOrder,
   updateOrder,
 } from "../firebase";
+import type { Unsubscribe } from "firebase/firestore";
 import { repositoryFailed, repositoryOk, runWhenActive, type RepositoryResult } from "./types";
 
 export const RETAILER_ORDER_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus[]>> = {
@@ -42,8 +48,8 @@ export const RETAILER_ORDER_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus
 
 export const DELIVERY_ORDER_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus[]>> = {
   READY_FOR_PICKUP: ["DELIVERY_ASSIGNED"],
-  DELIVERY_ASSIGNED: ["PICKED_UP", "DELIVERY_FAILED"],
-  PICKED_UP: ["OUT_FOR_DELIVERY", "DELIVERY_FAILED"],
+  DELIVERY_ASSIGNED: ["PICKED_UP"],
+  PICKED_UP: ["OUT_FOR_DELIVERY"],
   OUT_FOR_DELIVERY: ["DELIVERED", "DELIVERY_FAILED"],
 };
 
@@ -76,6 +82,10 @@ export function isInOrderFlow(status: OrderStatus): boolean {
 }
 
 export const orderRepository = {
+  async listAll(): Promise<RepositoryResult<Order[]>> {
+    return runWhenActive(isFirebaseActive, () => fetchAllOrders(), "Could not load orders.");
+  },
+
   async listForCustomer(customerId: string): Promise<RepositoryResult<Order[]>> {
     return runWhenActive(
       isFirebaseActive,
@@ -90,6 +100,26 @@ export const orderRepository = {
       () => fetchOrdersForShop(shopId, status),
       "Could not load orders for your shop.",
     );
+  },
+
+  subscribeForCustomer(
+    customerId: string,
+    onNext: (orders: Order[]) => void,
+    onError: (error: Error) => void,
+  ): Unsubscribe {
+    return subscribeToOrdersForCustomer(customerId, onNext, onError);
+  },
+
+  subscribeForShop(
+    shopId: string,
+    onNext: (orders: Order[]) => void,
+    onError: (error: Error) => void,
+  ): Unsubscribe {
+    return subscribeToOrdersForShop(shopId, onNext, onError);
+  },
+
+  subscribeAll(onNext: (orders: Order[]) => void, onError: (error: Error) => void): Unsubscribe {
+    return subscribeToAllOrders(onNext, onError);
   },
 
   async get(orderId: string): Promise<RepositoryResult<Order | null>> {
@@ -114,13 +144,31 @@ export const orderRepository = {
     return runWhenActive(isFirebaseActive, () => createOrder(order), "Could not place your order.");
   },
 
+  async placeCustomerOrder(input: {
+    customerId: string;
+    shopId: string;
+    deliveryAddressId: string;
+    items: { productId: string; quantity: number }[];
+    paymentMethod: "COD";
+  }): Promise<RepositoryResult<string>> {
+    return runWhenActive(
+      isFirebaseActive,
+      () => createCustomerOrder(input),
+      "Could not place your order.",
+    );
+  },
+
   /**
    * Advances an order after checking the transition locally.
    *
    * The local check is a guard against UI mistakes, not a security boundary —
    * `firestore.rules` independently enforces the same transitions server-side.
    */
-  async advance(order: Order, nextStatus: OrderStatus): Promise<RepositoryResult<void>> {
+  async advance(
+    order: Order,
+    nextStatus: OrderStatus,
+    patch: Partial<Order> = {},
+  ): Promise<RepositoryResult<void>> {
     if (!canTransitionOrder(order.orderStatus, nextStatus)) {
       return repositoryFailed(
         new Error(`Cannot move an order from ${order.orderStatus} to ${nextStatus}.`),
@@ -129,7 +177,7 @@ export const orderRepository = {
     }
     return runWhenActive(
       isFirebaseActive,
-      () => transitionOrder(order.id, nextStatus),
+      () => transitionOrder(order.id, nextStatus, patch),
       "Could not update that order.",
     );
   },
@@ -148,6 +196,7 @@ export const orderRepository = {
     orderId: string,
     current: OrderStatus,
     nextStatus: OrderStatus,
+    patch: Partial<Order> = {},
   ): Promise<RepositoryResult<void>> {
     if (!canTransitionOrder(current, nextStatus)) {
       return repositoryFailed(
@@ -157,8 +206,22 @@ export const orderRepository = {
     }
     return runWhenActive(
       isFirebaseActive,
-      () => transitionOrder(orderId, nextStatus),
+      () => transitionOrder(orderId, nextStatus, patch),
       "Could not update that order.",
+    );
+  },
+
+  async cancel(order: Order): Promise<RepositoryResult<void>> {
+    if (!["PLACED", "RETAILER_REVIEW"].includes(order.orderStatus)) {
+      return repositoryFailed(
+        new Error("Only new orders can be cancelled."),
+        "This order can no longer be cancelled.",
+      );
+    }
+    return runWhenActive(
+      isFirebaseActive,
+      () => transitionOrder(order.id, "CANCELLED", { paymentStatus: "CANCELLED" }),
+      "Could not cancel that order.",
     );
   },
 };

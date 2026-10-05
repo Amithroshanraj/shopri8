@@ -164,16 +164,18 @@ export type OrderStatus =
   | "REFUNDED";
 
 export type PaymentStatus =
+  | "CREATED"
   | "PENDING"
   | "PAID"
   | "FAILED"
+  | "EXPIRED"
   | "CANCELLED"
   | "REFUNDED"
   | "PARTIALLY_REFUNDED"
   | "COD_PENDING"
   | "COD_COLLECTED";
 
-export type PaymentMethod = "CASHFREE" | "COD";
+export type PaymentMethod = "DEMO_UPI" | "COD";
 
 export interface OrderItem {
   productId: string;
@@ -193,6 +195,7 @@ export interface Order {
   deliveryFee: number;
   totalAmount: number;
   deliveryAddress: Address;
+  deliveryAddressId?: string | undefined;
   /**
    * Document ID of the delivery task fulfilling this order.
    *
@@ -202,6 +205,7 @@ export interface Order {
    */
   deliveryTaskId?: string | undefined;
   paymentMethod: PaymentMethod;
+  paymentId?: string | undefined;
   paymentStatus: PaymentStatus;
   orderStatus: OrderStatus;
   statusHistory: { status: OrderStatus; at: string }[];
@@ -210,18 +214,24 @@ export interface Order {
   rejectionReason?: string | undefined;
 }
 
+export const STANDARD_DELIVERY_FEE = 29;
+
 export interface Payment {
   id: string;
   orderId: string;
-  gateway: "CASHFREE";
-  gatewayOrderId?: string;
-  paymentSessionId?: string;
+  customerId?: string;
+  shopId?: string;
+  gateway: "SHOPRI8_DEMO";
+  method?: "DEMO_UPI";
   amount: number;
+  currency?: string;
   status: PaymentStatus;
-  transactionId?: string;
   paymentMethod: PaymentMethod;
+  inputFingerprint?: string;
   createdAt?: string;
   updatedAt?: string;
+  paidAt?: string;
+  failureReason?: string;
 }
 
 export const DELIVERY_TASK_FLOW = [
@@ -239,15 +249,22 @@ export interface DeliveryTask {
   id: string;
   orderId: string;
   shopId: string;
-  deliveryWorkerId?: string;
   pickupLocation: { latitude: number; longitude: number };
   deliveryLocation: { latitude: number; longitude: number };
+  /** Firebase UID of the worker assigned to this task. */
+  deliveryWorkerId?: string;
   status: DeliveryTaskStatus;
   distance: number;
   deliveryFee: number;
   failureReason?: string;
   failureNotes?: string;
+  /** Legacy demo timestamp; Firebase writes `failedAt`. */
   failureAt?: string;
+  failedAt?: string;
+  assignedAt?: string;
+  pickedUpAt?: string;
+  outForDeliveryAt?: string;
+  deliveredAt?: string;
   createdAt?: string;
   updatedAt?: string;
 }

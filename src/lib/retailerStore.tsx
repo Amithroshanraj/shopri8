@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Order, Product, Shop } from "./types";
 import { DEMO_CENTER, PRODUCTS, SHOPS } from "../data/demo";
 import { announceOrdersUpdated, ORDERS_STORAGE_KEY, ORDERS_UPDATED_EVENT } from "./orderSync";
 import { isBrowser, isFirebaseActive } from "./firebase";
-import { productRepository, shopRepository } from "./repositories";
+import { orderRepository, productRepository, shopRepository } from "./repositories";
 import { useRetailerAuth } from "./retailerAuth";
 import { catalogQueryKeys } from "@/hooks/useCatalog";
 
@@ -112,7 +112,7 @@ const INITIAL_ORDERS: Order[] = [
       longitude: DEMO_CENTER.longitude,
       isDefault: true,
     },
-    paymentMethod: "CASHFREE",
+    paymentMethod: "DEMO_UPI",
     paymentStatus: "PAID",
     orderStatus: "PREPARING",
     statusHistory: [
@@ -175,7 +175,7 @@ const INITIAL_ORDERS: Order[] = [
       longitude: DEMO_CENTER.longitude,
       isDefault: true,
     },
-    paymentMethod: "CASHFREE",
+    paymentMethod: "DEMO_UPI",
     paymentStatus: "PAID",
     orderStatus: "DELIVERED",
     statusHistory: [
@@ -294,6 +294,35 @@ export function useRetailerStore() {
     enabled: firebaseEnabled,
     staleTime: 30_000,
   });
+  const shopOrdersQueryKey = useMemo(
+    () => ["orders", "shop", firebaseShop.data?.id ?? ""] as const,
+    [firebaseShop.data?.id],
+  );
+  const firebaseOrders = useQuery({
+    queryKey: shopOrdersQueryKey,
+    queryFn: async () => {
+      if (!firebaseShop.data) return [];
+      const result = await orderRepository.listForShop(firebaseShop.data.id);
+      if (!result.ok) throw new Error(result.message);
+      return result.data;
+    },
+    enabled: firebaseEnabled && !!firebaseShop.data,
+  });
+  const [firebaseOrdersLiveError, setFirebaseOrdersLiveError] = useState<string | null>(null);
+  useEffect(() => {
+    const shopId = firebaseShop.data?.id;
+    setFirebaseOrdersLiveError(null);
+    if (!firebaseEnabled || !shopId) return;
+    return orderRepository.subscribeForShop(
+      shopId,
+      (orders) => {
+        setFirebaseOrdersLiveError(null);
+        void queryClient.cancelQueries({ queryKey: shopOrdersQueryKey, exact: true });
+        queryClient.setQueryData(shopOrdersQueryKey, orders);
+      },
+      (error) => setFirebaseOrdersLiveError(error.message),
+    );
+  }, [firebaseEnabled, firebaseShop.data?.id, shopOrdersQueryKey, queryClient]);
   const firebaseProducts = useQuery({
     queryKey: firebaseShop.data
       ? catalogQueryKeys.productsByShop(firebaseShop.data.id)
@@ -367,13 +396,30 @@ export function useRetailerStore() {
   }, []);
 
   // Filter orders strictly for this shop
-  const shopOrders = state.orders.filter((o) => o.shopId === state.shop.id);
+  const shopOrders = isFirebaseActive
+    ? (firebaseOrders.data ?? [])
+    : state.orders.filter((o) => o.shopId === state.shop.id);
 
   // Update order status and sync across application
   const updateOrderStatus = useCallback(
-    (orderId: string, newStatus: Order["orderStatus"], rejectionReason?: string) => {
+    async (orderId: string, newStatus: Order["orderStatus"], rejectionReason?: string) => {
+      if (isFirebaseActive) {
+        const order = firebaseOrders.data?.find((entry) => entry.id === orderId);
+        if (!order) throw new Error("Order not found for this shop.");
+        const result = await orderRepository.advance(
+          order,
+          newStatus,
+          rejectionReason ? { rejectionReason } : {},
+        );
+        if (!result.ok) throw new Error(result.message);
+        await queryClient.invalidateQueries({ queryKey: ["orders"] });
+        await queryClient.invalidateQueries({ queryKey: ["delivery-tasks"] });
+        return;
+      }
       const order = storeState.orders.find((currentOrder) => currentOrder.id === orderId);
-      if (!order || !RETAILER_ORDER_TRANSITIONS[order.orderStatus]?.includes(newStatus)) return;
+      if (!order || !RETAILER_ORDER_TRANSITIONS[order.orderStatus]?.includes(newStatus)) {
+        throw new Error("That order cannot move to that status.");
+      }
 
       const now = new Date().toISOString();
       const updatedAllOrders = storeState.orders.map((o) => {
@@ -396,7 +442,7 @@ export function useRetailerStore() {
       }
       notifyStoreListeners();
     },
-    [],
+    [firebaseOrders.data, queryClient],
   );
 
   // Add a new product to the shop
@@ -580,10 +626,13 @@ export function useRetailerStore() {
     loading: isFirebaseActive
       ? !auth.user ||
         firebaseShop.isPending ||
-        (firebaseShop.data !== null && firebaseProducts.isPending)
+        (firebaseShop.data !== null && (firebaseProducts.isPending || firebaseOrders.isPending))
       : state.loading,
     error: isFirebaseActive
-      ? (firebaseShop.error?.message ?? firebaseProducts.error?.message ?? null)
+      ? (firebaseShop.error?.message ??
+        firebaseProducts.error?.message ??
+        firebaseOrders.error?.message ??
+        null)
       : null,
     updateOrderStatus,
     addProduct,

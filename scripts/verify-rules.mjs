@@ -127,6 +127,39 @@ async function patchDoc(token, path, data) {
     body: JSON.stringify({ fields: encodeFields(data) }),
   });
 }
+
+function orderCreateFixture(customerUid, overrides = {}) {
+  const addressId = `addr-${customerUid}`;
+  return {
+    customerId: customerUid,
+    shopId: "shop-a",
+    shopName: "Shop A",
+    items: [{ productId: "prod-a", name: "Rice", price: 340, quantity: 1 }],
+    subtotal: 340,
+    deliveryFee: 29,
+    totalAmount: 369,
+    deliveryAddressId: addressId,
+    deliveryAddress: {
+      id: addressId,
+      userId: customerUid,
+      label: "Home",
+      recipientName: "Customer",
+      phone: "+1 415 555 0100",
+      address: "1 Test Street",
+      latitude: 37.7749,
+      longitude: -122.4194,
+    },
+    paymentMethod: "COD",
+    paymentStatus: "COD_PENDING",
+    orderStatus: "PLACED",
+    statusHistory: [{ status: "PLACED", at: new Date().toISOString() }],
+    ...overrides,
+  };
+}
+
+function appendOrderStatus(history, status) {
+  return [...history, { status, at: new Date().toISOString() }];
+}
 async function createDoc(token, collection, data) {
   return fetch(`${FS}/${collection}`, {
     method: "POST",
@@ -288,6 +321,14 @@ async function main() {
     email: "worker@shopri8.test",
     password: "Password123!",
   });
+  const workerB = await makeUser("worker-b", {
+    email: "worker-b@shopri8.test",
+    password: "Password123!",
+  });
+  const offlineWorker = await makeUser("offline-worker", {
+    email: "offline-worker@shopri8.test",
+    password: "Password123!",
+  });
   const legacyWorker = await makeUser("legacy-worker", {
     email: "legacy-worker@shopri8.test",
     password: "Password123!",
@@ -346,6 +387,19 @@ async function main() {
     displayName: "Arjun",
     capabilities: ["delivery_worker"],
     status: "active",
+  });
+  await seedPlain(`users/${workerB.uid}`, {
+    uid: workerB.uid,
+    displayName: "Bea",
+    capabilities: ["delivery_worker"],
+    status: "active",
+  });
+  await seedPlain(`users/${offlineWorker.uid}`, {
+    uid: offlineWorker.uid,
+    displayName: "Offline Worker",
+    capabilities: ["delivery_worker"],
+    status: "active",
+    available: false,
   });
   await seedPlain(`users/${legacyWorker.uid}`, {
     name: "Legacy Arjun",
@@ -449,6 +503,11 @@ async function main() {
   await seedPlain(`addresses/addr-${customer.uid}`, {
     userId: customer.uid,
     label: "Home",
+    recipientName: "Customer",
+    phone: "+1 415 555 0100",
+    address: "1 Test Street",
+    latitude: 37.7749,
+    longitude: -122.4194,
   });
 
   await seedPlain("orders/order-1", {
@@ -460,24 +519,24 @@ async function main() {
     statusHistory: [],
   });
   await seedPlain("deliveryTasks/task-open", {
-    orderId: "order-1",
+    orderId: "order-open",
     shopId: "shop-a",
     status: "AVAILABLE",
   });
   await seedPlain("deliveryTasks/task-taken", {
-    orderId: "order-1",
+    orderId: "order-taken",
     shopId: "shop-a",
     status: "DELIVERY_ASSIGNED",
     deliveryWorkerId: worker.uid,
   });
   await seedPlain("deliveryTasks/task-untouched", {
-    orderId: "order-1",
+    orderId: "order-untouched",
     shopId: "shop-a",
     status: "DELIVERY_ASSIGNED",
     deliveryWorkerId: worker.uid,
   });
   await seedPlain("deliveryTasks/task-legit", {
-    orderId: "order-1",
+    orderId: "order-6",
     shopId: "shop-a",
     status: "OUT_FOR_DELIVERY",
     deliveryWorkerId: worker.uid,
@@ -488,7 +547,149 @@ async function main() {
     deliveryTaskId: "task-legit",
     orderStatus: "OUT_FOR_DELIVERY",
     totalAmount: 100,
-    statusHistory: [],
+    statusHistory: [{ status: "OUT_FOR_DELIVERY", at: new Date().toISOString() }],
+    paymentStatus: "COD_PENDING",
+  });
+  await seedPlain("orders/order-open", {
+    customerId: customer.uid,
+    shopId: "shop-a",
+    deliveryTaskId: "task-open",
+    orderStatus: "READY_FOR_PICKUP",
+    totalAmount: 100,
+    statusHistory: [{ status: "READY_FOR_PICKUP", at: new Date().toISOString() }],
+  });
+  await seedPlain("orders/order-taken", {
+    customerId: customer.uid,
+    shopId: "shop-a",
+    deliveryTaskId: "task-taken",
+    orderStatus: "DELIVERY_ASSIGNED",
+    totalAmount: 100,
+    statusHistory: [{ status: "DELIVERY_ASSIGNED", at: new Date().toISOString() }],
+  });
+  await seedPlain("orders/order-untouched", {
+    customerId: customer.uid,
+    shopId: "shop-a",
+    deliveryTaskId: "task-untouched",
+    orderStatus: "DELIVERY_ASSIGNED",
+    totalAmount: 100,
+    statusHistory: [{ status: "DELIVERY_ASSIGNED", at: new Date().toISOString() }],
+  });
+  await seedPlain(`deliveryTasks/task-failed-${runId}`, {
+    orderId: `order-failed-${runId}`,
+    shopId: "shop-a",
+    status: "DELIVERY_FAILED",
+    deliveryWorkerId: workerB.uid,
+    failureReason: "Customer unavailable",
+  });
+  await seedPlain(`orders/order-failed-${runId}`, {
+    customerId: customer.uid,
+    shopId: "shop-a",
+    deliveryTaskId: `task-failed-${runId}`,
+    orderStatus: "DELIVERY_FAILED",
+    totalAmount: 100,
+    statusHistory: [{ status: "DELIVERY_FAILED", at: new Date().toISOString() }],
+  });
+  await seedPlain(`deliveryTasks/task-delivered-${runId}`, {
+    orderId: `order-delivered-${runId}`,
+    shopId: "shop-a",
+    status: "DELIVERED",
+    deliveryWorkerId: workerB.uid,
+  });
+  await seedPlain(`orders/order-delivered-${runId}`, {
+    customerId: customer.uid,
+    shopId: "shop-a",
+    deliveryTaskId: `task-delivered-${runId}`,
+    orderStatus: "DELIVERED",
+    totalAmount: 100,
+    statusHistory: [{ status: "DELIVERED", at: new Date().toISOString() }],
+  });
+  await seedPlain(`deliveryTasks/task-failure-${runId}`, {
+    orderId: `order-failure-${runId}`,
+    shopId: "shop-a",
+    status: "OUT_FOR_DELIVERY",
+    deliveryWorkerId: workerB.uid,
+  });
+  await seedPlain(`orders/order-failure-${runId}`, {
+    customerId: customer.uid,
+    shopId: "shop-a",
+    deliveryTaskId: `task-failure-${runId}`,
+    orderStatus: "OUT_FOR_DELIVERY",
+    totalAmount: 100,
+    statusHistory: [{ status: "OUT_FOR_DELIVERY", at: new Date().toISOString() }],
+  });
+  await seedPlain(`deliveryTasks/task-failure-no-reason-${runId}`, {
+    orderId: `order-failure-no-reason-${runId}`,
+    shopId: "shop-a",
+    status: "OUT_FOR_DELIVERY",
+    deliveryWorkerId: workerB.uid,
+  });
+  await seedPlain(`orders/order-failure-no-reason-${runId}`, {
+    customerId: customer.uid,
+    shopId: "shop-a",
+    deliveryTaskId: `task-failure-no-reason-${runId}`,
+    orderStatus: "OUT_FOR_DELIVERY",
+    totalAmount: 100,
+    statusHistory: [{ status: "OUT_FOR_DELIVERY", at: new Date().toISOString() }],
+  });
+  await seedPlain(`deliveryTasks/task-race-${runId}`, {
+    orderId: `order-race-${runId}`,
+    shopId: "shop-a",
+    status: "AVAILABLE",
+  });
+  await seedPlain(`orders/order-race-${runId}`, {
+    customerId: customer.uid,
+    shopId: "shop-a",
+    deliveryTaskId: `task-race-${runId}`,
+    orderStatus: "READY_FOR_PICKUP",
+    totalAmount: 100,
+    statusHistory: [{ status: "READY_FOR_PICKUP", at: new Date().toISOString() }],
+  });
+  await seedPlain(`deliveryTasks/task-offline-${runId}`, {
+    orderId: `order-offline-${runId}`,
+    shopId: "shop-a",
+    status: "AVAILABLE",
+  });
+  await seedPlain(`orders/order-offline-${runId}`, {
+    customerId: customer.uid,
+    shopId: "shop-a",
+    deliveryTaskId: `task-offline-${runId}`,
+    orderStatus: "READY_FOR_PICKUP",
+    totalAmount: 100,
+    statusHistory: [{ status: "READY_FOR_PICKUP", at: new Date().toISOString() }],
+  });
+  await seedPlain(`deliveryTasks/task-already-claimed-${runId}`, {
+    orderId: `order-already-claimed-${runId}`,
+    shopId: "shop-a",
+    status: "DELIVERY_ASSIGNED",
+    deliveryWorkerId: worker.uid,
+  });
+  await seedPlain(`orders/order-already-claimed-${runId}`, {
+    customerId: customer.uid,
+    shopId: "shop-a",
+    deliveryTaskId: `task-already-claimed-${runId}`,
+    orderStatus: "DELIVERY_ASSIGNED",
+    totalAmount: 100,
+    statusHistory: [{ status: "DELIVERY_ASSIGNED", at: new Date().toISOString() }],
+  });
+  await seedPlain(`orders/order-ready-create-${runId}`, {
+    customerId: customer.uid,
+    shopId: "shop-a",
+    orderStatus: "PREPARING",
+    totalAmount: 100,
+    statusHistory: [{ status: "PREPARING", at: new Date().toISOString() }],
+  });
+  await seedPlain(`orders/order-admin-dispatch-${runId}`, {
+    customerId: customer.uid,
+    shopId: "shop-a",
+    deliveryTaskId: `task-admin-dispatch-${runId}`,
+    orderStatus: "READY_FOR_PICKUP",
+    totalAmount: 100,
+    statusHistory: [{ status: "READY_FOR_PICKUP", at: new Date().toISOString() }],
+  });
+  await seedPlain(`deliveryTasks/task-admin-dispatch-${runId}`, {
+    orderId: `order-admin-dispatch-${runId}`,
+    shopId: "shop-a",
+    status: "AVAILABLE",
   });
   await seedPlain("payments/pay-1", { orderId: "order-1", status: "COD_PENDING", amount: 500 });
 
@@ -507,6 +708,13 @@ async function main() {
     totalAmount: 100,
     statusHistory: [],
   });
+  await seedPlain(
+    "orders/order-demo-payment-pending",
+    orderCreateFixture(customer.uid, {
+      paymentMethod: "DEMO_UPI",
+      paymentStatus: "PENDING",
+    }),
+  );
   await seedPlain("orders/order-4", {
     customerId: customer.uid,
     shopId: "shop-a",
@@ -1063,40 +1271,80 @@ async function main() {
     getDoc(retailer.idToken, "orders/order-1"),
   );
   await expect("customer", "create own order starting PLACED", "allow", () =>
-    createDoc(customer.idToken, "orders", {
-      customerId: customer.uid,
-      shopId: "shop-a",
-      orderStatus: "PLACED",
-      totalAmount: 100,
-    }),
+    commitWrites(customer.idToken, [
+      {
+        path: `orders/order-created-valid-${Date.now()}`,
+        data: orderCreateFixture(customer.uid),
+        timestampFields: ["createdAt", "updatedAt"],
+        exists: false,
+      },
+    ]),
+  );
+  await expect("customer", "cannot create an online order from the client", "deny", () =>
+    commitWrites(customer.idToken, [
+      {
+        path: "orders/order-client-demo-payment",
+        data: orderCreateFixture(customer.uid, {
+          paymentMethod: "DEMO_UPI",
+          paymentStatus: "PENDING",
+        }),
+        timestampFields: ["createdAt", "updatedAt"],
+        exists: false,
+      },
+    ]),
   );
   await expect("customer", "create order for another customerId", "deny", () =>
-    createDoc(customer.idToken, "orders", {
-      customerId: other.uid,
-      shopId: "shop-a",
-      orderStatus: "PLACED",
-      totalAmount: 100,
-    }),
+    commitWrites(customer.idToken, [
+      {
+        path: "orders/order-created-other-customer",
+        data: orderCreateFixture(other.uid),
+        timestampFields: ["createdAt", "updatedAt"],
+        exists: false,
+      },
+    ]),
   );
   await expect("customer", "create order skipping straight to DELIVERED", "deny", () =>
-    createDoc(customer.idToken, "orders", {
-      customerId: customer.uid,
-      shopId: "shop-a",
-      orderStatus: "DELIVERED",
-      totalAmount: 100,
-    }),
+    commitWrites(customer.idToken, [
+      {
+        path: "orders/order-created-skipped",
+        data: orderCreateFixture(customer.uid, {
+          orderStatus: "DELIVERED",
+          statusHistory: [{ status: "DELIVERED", at: new Date().toISOString() }],
+        }),
+        timestampFields: ["createdAt", "updatedAt"],
+        exists: false,
+      },
+    ]),
   );
   await expect("customer", "change order total", "deny", () =>
     patchDoc(customer.idToken, "orders/order-1", { totalAmount: 1 }),
   );
   await expect("customer", "cancel own order", "allow", () =>
-    patchDoc(customer.idToken, "orders/order-1", { orderStatus: "CANCELLED" }),
+    writeWithTimestamps(
+      customer.idToken,
+      "orders/order-1",
+      {
+        orderStatus: "CANCELLED",
+        statusHistory: appendOrderStatus([], "CANCELLED"),
+      },
+      ["updatedAt"],
+      true,
+    ),
   );
   await expect("customer", "delete own order", "deny", () =>
     fetch(`${FS}/orders/order-1`, { method: "DELETE", headers: req(customer.idToken) }),
   );
-  await expect("worker", "advance order they are assigned to", "allow", () =>
-    patchDoc(worker.idToken, "orders/order-6", { orderStatus: "DELIVERED" }),
+  await expect("worker", "cannot advance an order without its task", "deny", () =>
+    patchDoc(worker.idToken, "orders/order-6", {
+      orderStatus: "DELIVERED",
+      statusHistory: appendOrderStatus([{ status: "OUT_FOR_DELIVERY", at: "before" }], "DELIVERED"),
+    }),
+  );
+  await expect("admin", "cannot change order status without a matching task update", "deny", () =>
+    patchDoc(admin.idToken, "orders/order-6", {
+      orderStatus: "DELIVERED",
+      statusHistory: appendOrderStatus([{ status: "OUT_FOR_DELIVERY", at: "before" }], "DELIVERED"),
+    }),
   );
   await expect("customer", "advance own order status", "deny", () =>
     patchDoc(customer.idToken, "orders/order-1", { orderStatus: "PREPARING" }),
@@ -1104,7 +1352,41 @@ async function main() {
 
   // --- lifecycle integrity (no skipped states) ---------------------------
   await expect("retailer", "legal step: PLACED -> RETAILER_REVIEW", "allow", () =>
-    patchDoc(retailer.idToken, "orders/order-2", { orderStatus: "RETAILER_REVIEW" }),
+    writeWithTimestamps(
+      retailer.idToken,
+      "orders/order-2",
+      {
+        orderStatus: "RETAILER_REVIEW",
+        statusHistory: appendOrderStatus([], "RETAILER_REVIEW"),
+      },
+      ["updatedAt"],
+      true,
+    ),
+  );
+  await expect("retailer", "cannot mark an order paid while processing it", "deny", () =>
+    writeWithTimestamps(
+      retailer.idToken,
+      "orders/order-3",
+      {
+        orderStatus: "RETAILER_REVIEW",
+        paymentStatus: "PAID",
+        statusHistory: appendOrderStatus([], "RETAILER_REVIEW"),
+      },
+      ["updatedAt"],
+      true,
+    ),
+  );
+  await expect("retailer", "cannot process an online order before verified payment", "deny", () =>
+    writeWithTimestamps(
+      retailer.idToken,
+      "orders/order-demo-payment-pending",
+      {
+        orderStatus: "RETAILER_REVIEW",
+        statusHistory: appendOrderStatus([{ status: "PLACED", at: "before" }], "RETAILER_REVIEW"),
+      },
+      ["updatedAt"],
+      true,
+    ),
   );
   await expect("retailer", "skip states: PLACED -> READY_FOR_PICKUP", "deny", () =>
     patchDoc(retailer.idToken, "orders/order-3", { orderStatus: "READY_FOR_PICKUP" }),
@@ -1123,25 +1405,79 @@ async function main() {
   await expect("worker", "read open board", "allow", () =>
     getDoc(worker.idToken, "deliveryTasks/task-open"),
   );
+  await expect("anonymous", "cannot read delivery task", "deny", () =>
+    getDoc(null, "deliveryTasks/task-open"),
+  );
+  await expect("customer", "cannot read delivery task directly", "deny", () =>
+    getDoc(customer.idToken, "deliveryTasks/task-open"),
+  );
   await expect("legacy worker", "read open board with legacy capability", "allow", () =>
     getDoc(legacyWorker.idToken, "deliveryTasks/task-open"),
   );
-  await expect("worker", "claim an AVAILABLE task", "allow", () =>
-    patchDoc(worker.idToken, "deliveryTasks/task-open", {
-      status: "DELIVERY_ASSIGNED",
-      deliveryWorkerId: worker.uid,
-    }),
+  await expect("worker", "claim task and assign order atomically", "allow", () =>
+    commitWrites(worker.idToken, [
+      {
+        path: "deliveryTasks/task-open",
+        data: { status: "DELIVERY_ASSIGNED", deliveryWorkerId: worker.uid },
+        timestampFields: ["assignedAt", "updatedAt"],
+      },
+      {
+        path: "orders/order-open",
+        data: {
+          orderStatus: "DELIVERY_ASSIGNED",
+          statusHistory: appendOrderStatus(
+            [{ status: "READY_FOR_PICKUP", at: "before" }],
+            "DELIVERY_ASSIGNED",
+          ),
+        },
+        timestampFields: ["updatedAt"],
+      },
+    ]),
   );
-  await expect("worker", "advance own task to next legal state", "allow", () =>
-    patchDoc(worker.idToken, "deliveryTasks/task-taken", { status: "PICKED_UP" }),
+  await expect("worker", "advance task and order atomically", "allow", () =>
+    commitWrites(worker.idToken, [
+      {
+        path: "deliveryTasks/task-taken",
+        data: { status: "PICKED_UP" },
+        timestampFields: ["pickedUpAt", "updatedAt"],
+      },
+      {
+        path: "orders/order-taken",
+        data: {
+          orderStatus: "PICKED_UP",
+          statusHistory: appendOrderStatus(
+            [{ status: "DELIVERY_ASSIGNED", at: "before" }],
+            "PICKED_UP",
+          ),
+        },
+        timestampFields: ["updatedAt"],
+      },
+    ]),
   );
   // Separate fixtures: the assertion above already moved task-taken forward, so
   // reusing it here would no longer test a skipped state.
   await expect("worker", "skip a lifecycle state on own task", "deny", () =>
     patchDoc(worker.idToken, "deliveryTasks/task-untouched", { status: "OUT_FOR_DELIVERY" }),
   );
-  await expect("worker", "legal final step on own task", "allow", () =>
-    patchDoc(worker.idToken, "deliveryTasks/task-legit", { status: "DELIVERED" }),
+  await expect("worker", "legal final step on task and order", "allow", () =>
+    commitWrites(worker.idToken, [
+      {
+        path: "deliveryTasks/task-legit",
+        data: { status: "DELIVERED" },
+        timestampFields: ["deliveredAt", "updatedAt"],
+      },
+      {
+        path: "orders/order-6",
+        data: {
+          orderStatus: "DELIVERED",
+          statusHistory: appendOrderStatus(
+            [{ status: "OUT_FOR_DELIVERY", at: "before" }],
+            "DELIVERED",
+          ),
+        },
+        timestampFields: ["updatedAt"],
+      },
+    ]),
   );
   await expect("customer", "claim a delivery task", "deny", () =>
     patchDoc(customer.idToken, "deliveryTasks/task-open", {
@@ -1149,6 +1485,288 @@ async function main() {
       deliveryWorkerId: customer.uid,
     }),
   );
+  await expect("retailer", "cannot claim a delivery task", "deny", () =>
+    patchDoc(retailer.idToken, "deliveryTasks/task-open", {
+      status: "DELIVERY_ASSIGNED",
+      deliveryWorkerId: retailer.uid,
+    }),
+  );
+  await expect("worker two", "cannot claim a task already assigned to another worker", "deny", () =>
+    commitWrites(workerB.idToken, [
+      {
+        path: `deliveryTasks/task-already-claimed-${runId}`,
+        data: { status: "DELIVERY_ASSIGNED", deliveryWorkerId: workerB.uid },
+      },
+      {
+        path: `orders/order-already-claimed-${runId}`,
+        data: {
+          orderStatus: "DELIVERY_ASSIGNED",
+          statusHistory: appendOrderStatus(
+            [{ status: "DELIVERY_ASSIGNED", at: "before" }],
+            "DELIVERY_ASSIGNED",
+          ),
+        },
+      },
+    ]),
+  );
+  await expect("offline worker", "cannot claim task while marked unavailable", "deny", () =>
+    commitWrites(offlineWorker.idToken, [
+      {
+        path: `deliveryTasks/task-offline-${runId}`,
+        data: { status: "DELIVERY_ASSIGNED", deliveryWorkerId: offlineWorker.uid },
+        timestampFields: ["assignedAt", "updatedAt"],
+      },
+      {
+        path: `orders/order-offline-${runId}`,
+        data: {
+          orderStatus: "DELIVERY_ASSIGNED",
+          statusHistory: appendOrderStatus(
+            [{ status: "READY_FOR_PICKUP", at: "before" }],
+            "DELIVERY_ASSIGNED",
+          ),
+        },
+        timestampFields: ["updatedAt"],
+      },
+    ]),
+  );
+  await expect("worker", "can update own availability safely", "allow", () =>
+    writeWithTimestamps(
+      worker.idToken,
+      `users/${worker.uid}`,
+      { available: true },
+      ["updatedAt"],
+      true,
+      ["available", "updatedAt"],
+    ),
+  );
+  await expect("worker two", "cannot update another worker's task", "deny", () =>
+    patchDoc(workerB.idToken, "deliveryTasks/task-taken", { status: "OUT_FOR_DELIVERY" }),
+  );
+  await expect("worker two", "cannot modify delivered task", "deny", () =>
+    patchDoc(workerB.idToken, `deliveryTasks/task-delivered-${runId}`, {
+      status: "PICKED_UP",
+    }),
+  );
+  await expect("worker two", "cannot modify failed task", "deny", () =>
+    patchDoc(workerB.idToken, `deliveryTasks/task-failed-${runId}`, {
+      status: "OUT_FOR_DELIVERY",
+    }),
+  );
+  await expect("worker", "cannot report failure before out for delivery", "deny", () =>
+    patchDoc(worker.idToken, "deliveryTasks/task-open", {
+      status: "DELIVERY_FAILED",
+      failureReason: "Customer unavailable",
+    }),
+  );
+
+  const readyOrderId = `order-ready-create-${runId}`;
+  const readyTaskId = `task-${readyOrderId}`;
+  const readyTask = {
+    orderId: readyOrderId,
+    shopId: "shop-a",
+    status: "AVAILABLE",
+    pickupLocation: { latitude: 12.9, longitude: 77.5 },
+    deliveryLocation: { latitude: 12.91, longitude: 77.51 },
+    distance: 1.5,
+    deliveryFee: 29,
+  };
+  await expect("retailer", "create exactly one task with READY_FOR_PICKUP", "allow", () =>
+    commitWrites(retailer.idToken, [
+      {
+        path: `orders/${readyOrderId}`,
+        data: {
+          orderStatus: "READY_FOR_PICKUP",
+          deliveryTaskId: readyTaskId,
+          statusHistory: appendOrderStatus(
+            [{ status: "PREPARING", at: "before" }],
+            "READY_FOR_PICKUP",
+          ),
+        },
+        timestampFields: ["updatedAt"],
+      },
+      {
+        path: `deliveryTasks/${readyTaskId}`,
+        data: readyTask,
+        timestampFields: ["createdAt", "updatedAt"],
+        exists: false,
+      },
+    ]),
+  );
+  await expect("retailer", "cannot create a duplicate task for one order", "deny", () =>
+    commitWrites(retailer.idToken, [
+      {
+        path: `deliveryTasks/task-duplicate-${readyOrderId}`,
+        data: readyTask,
+        timestampFields: ["createdAt", "updatedAt"],
+        exists: false,
+      },
+    ]),
+  );
+  await expect("admin", "cannot create a delivery task without a valid order", "deny", () =>
+    commitWrites(admin.idToken, [
+      {
+        path: `deliveryTasks/task-orphan-${runId}`,
+        data: {
+          ...readyTask,
+          orderId: `order-orphan-${runId}`,
+        },
+        timestampFields: ["createdAt", "updatedAt"],
+        exists: false,
+      },
+    ]),
+  );
+
+  const adminTaskId = `task-admin-dispatch-${runId}`;
+  const adminOrderId = `order-admin-dispatch-${runId}`;
+  await expect("admin", "assign eligible worker atomically", "allow", () =>
+    commitWrites(admin.idToken, [
+      {
+        path: `deliveryTasks/${adminTaskId}`,
+        data: { status: "DELIVERY_ASSIGNED", deliveryWorkerId: worker.uid },
+        timestampFields: ["assignedAt", "updatedAt"],
+      },
+      {
+        path: `orders/${adminOrderId}`,
+        data: {
+          orderStatus: "DELIVERY_ASSIGNED",
+          statusHistory: appendOrderStatus(
+            [{ status: "READY_FOR_PICKUP", at: "before" }],
+            "DELIVERY_ASSIGNED",
+          ),
+        },
+        timestampFields: ["updatedAt"],
+      },
+    ]),
+  );
+  await expect("admin", "cannot dispatch to an unavailable worker", "deny", () =>
+    commitWrites(admin.idToken, [
+      {
+        path: `deliveryTasks/task-offline-${runId}`,
+        data: {
+          status: "DELIVERY_ASSIGNED",
+          deliveryWorkerId: offlineWorker.uid,
+        },
+        timestampFields: ["assignedAt", "updatedAt"],
+      },
+      {
+        path: `orders/order-offline-${runId}`,
+        data: {
+          orderStatus: "DELIVERY_ASSIGNED",
+          statusHistory: appendOrderStatus(
+            [{ status: "READY_FOR_PICKUP", at: "before" }],
+            "DELIVERY_ASSIGNED",
+          ),
+        },
+        timestampFields: ["updatedAt"],
+      },
+    ]),
+  );
+  await expect("worker two", "report delivery failure with reason atomically", "allow", () =>
+    commitWrites(workerB.idToken, [
+      {
+        path: `deliveryTasks/task-failure-${runId}`,
+        data: {
+          status: "DELIVERY_FAILED",
+          failureReason: "Customer unavailable",
+        },
+        timestampFields: ["failedAt", "updatedAt"],
+      },
+      {
+        path: `orders/order-failure-${runId}`,
+        data: {
+          orderStatus: "DELIVERY_FAILED",
+          statusHistory: appendOrderStatus(
+            [{ status: "OUT_FOR_DELIVERY", at: "before" }],
+            "DELIVERY_FAILED",
+          ),
+        },
+        timestampFields: ["updatedAt"],
+      },
+    ]),
+  );
+  await expect("worker two", "cannot report failure without a meaningful reason", "deny", () =>
+    commitWrites(workerB.idToken, [
+      {
+        path: `deliveryTasks/task-failure-no-reason-${runId}`,
+        data: { status: "DELIVERY_FAILED" },
+        timestampFields: ["failedAt", "updatedAt"],
+      },
+      {
+        path: `orders/order-failure-no-reason-${runId}`,
+        data: {
+          orderStatus: "DELIVERY_FAILED",
+          statusHistory: appendOrderStatus(
+            [{ status: "OUT_FOR_DELIVERY", at: "before" }],
+            "DELIVERY_FAILED",
+          ),
+        },
+        timestampFields: ["updatedAt"],
+      },
+    ]),
+  );
+  await expect("admin", "cannot delete an order and leave a task orphaned", "deny", () =>
+    fetch(`${FS}/orders/${adminOrderId}`, { method: "DELETE", headers: req(admin.idToken) }),
+  );
+  await expect("admin", "cannot delete a task referenced by an order", "deny", () =>
+    fetch(`${FS}/deliveryTasks/${adminTaskId}`, {
+      method: "DELETE",
+      headers: req(admin.idToken),
+    }),
+  );
+
+  const raceTaskId = `task-race-${runId}`;
+  const raceOrderId = `order-race-${runId}`;
+  const makeClaim = (actor) =>
+    commitWrites(actor.idToken, [
+      {
+        path: `deliveryTasks/${raceTaskId}`,
+        data: { status: "DELIVERY_ASSIGNED", deliveryWorkerId: actor.uid },
+        timestampFields: ["assignedAt", "updatedAt"],
+      },
+      {
+        path: `orders/${raceOrderId}`,
+        data: {
+          orderStatus: "DELIVERY_ASSIGNED",
+          statusHistory: appendOrderStatus(
+            [{ status: "READY_FOR_PICKUP", at: "before" }],
+            "DELIVERY_ASSIGNED",
+          ),
+        },
+        timestampFields: ["updatedAt"],
+      },
+    ]);
+  const concurrentClaims = await Promise.all([makeClaim(worker), makeClaim(workerB)]);
+  const winnerIndex = concurrentClaims.findIndex((response) => response.ok);
+  record(
+    "concurrency",
+    "exactly one concurrent worker claim succeeds",
+    "allow",
+    concurrentClaims.filter((response) => response.ok).length === 1 ? "allow" : "deny",
+  );
+  if (winnerIndex >= 0) {
+    const winningWorker = [worker, workerB][winnerIndex];
+    const storedTaskResponse = await getDoc(winningWorker.idToken, `deliveryTasks/${raceTaskId}`);
+    const storedTask = await storedTaskResponse.json();
+    const storedWorkerId =
+      storedTask.fields?.deliveryWorkerId?.stringValue ?? storedTask.fields?.deliveryWorkerId;
+    record(
+      "concurrency",
+      "winning worker remains assigned without overwrite",
+      "allow",
+      storedWorkerId === winningWorker.uid ? "allow" : "deny",
+    );
+    const storedOrderResponse = await getDoc(winningWorker.idToken, `orders/${raceOrderId}`);
+    const storedOrder = await storedOrderResponse.json();
+    record(
+      "concurrency",
+      "concurrent claim leaves order synchronized",
+      "allow",
+      storedOrder.fields?.orderStatus?.stringValue === "DELIVERY_ASSIGNED" ? "allow" : "deny",
+    );
+  } else {
+    record("concurrency", "winning worker remains assigned without overwrite", "allow", "deny");
+    record("concurrency", "concurrent claim leaves order synchronized", "allow", "deny");
+  }
 
   // --- categories / payments --------------------------------------------
   await expect("customer", "read ACTIVE category", "allow", () =>
@@ -1157,11 +1775,23 @@ async function main() {
   await expect("customer", "write a category", "deny", () =>
     patchDoc(customer.idToken, "categories/grocery", { name: "Hacked" }),
   );
-  await expect("customer", "read own order's payment", "allow", () =>
+  await expect("customer", "cannot read private payment session details", "deny", () =>
     getDoc(customer.idToken, "payments/pay-1"),
+  );
+  await expect("retailer", "cannot read payment provider details", "deny", () =>
+    getDoc(retailer.idToken, "payments/pay-1"),
+  );
+  await expect("worker", "cannot read payment provider details", "deny", () =>
+    getDoc(worker.idToken, "payments/pay-1"),
+  );
+  await expect("admin", "read payment for administration", "allow", () =>
+    getDoc(admin.idToken, "payments/pay-1"),
   );
   await expect("customer", "write a payment", "deny", () =>
     createDoc(customer.idToken, "payments", { orderId: "order-1", amount: 1 }),
+  );
+  await expect("customer", "cannot mark own payment paid", "deny", () =>
+    patchDoc(customer.idToken, "payments/pay-1", { status: "PAID" }),
   );
   await expect("admin", "write a payment", "deny", () =>
     createDoc(admin.idToken, "payments", { orderId: "order-1", amount: 1 }),

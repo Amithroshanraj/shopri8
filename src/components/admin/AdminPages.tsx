@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   ArrowDownRight,
@@ -26,7 +27,9 @@ import {
   type ManagedStatus,
 } from "@/lib/adminData";
 import { DELIVERY_FEE } from "@/lib/cart";
+import { isFirebaseActive } from "@/lib/firebase";
 import { formatPrice } from "@/lib/geo";
+import { paymentRepository } from "@/lib/repositories";
 import {
   ORDER_STATUS_FLOW,
   ORDER_STATUS_LABEL,
@@ -1603,6 +1606,15 @@ function DetailField({ label, children }: { label: string; children: ReactNode }
 
 function OrderDetails({ order }: { order: Order }) {
   const data = useAdminData();
+  const paymentsQuery = useQuery({
+    queryKey: ["payments", "order", order.id],
+    queryFn: async () => {
+      const result = await paymentRepository.listForOrder(order.id);
+      if (!result.ok) throw new Error(result.message);
+      return result.data;
+    },
+    enabled: isFirebaseActive,
+  });
   const shop = shopFor(data, order.shopId);
   const retailer = data.retailers.find((item) => item.id === shop?.ownerId);
   const history = order.statusHistory.length
@@ -1699,11 +1711,40 @@ function OrderDetails({ order }: { order: Order }) {
           </section>
           <section className={`${panelClass} grid gap-4 p-5 sm:grid-cols-2`}>
             <h2 className="sm:col-span-2 font-display font-semibold">Payment</h2>
-            <DetailField label="Method">{order.paymentMethod}</DetailField>
+            <DetailField label="Method">
+              {order.paymentMethod === "COD" ? "Cash on delivery" : "UPI / QR Demo"}
+            </DetailField>
             <DetailField label="Payment status">
               <StatusBadge status={order.paymentStatus} />
             </DetailField>
             <DetailField label="Amount">{formatPrice(order.totalAmount)}</DetailField>
+            {paymentsQuery.data?.map((payment) => (
+              <div
+                key={payment.id}
+                className="grid gap-3 border-t border-border/60 pt-3 sm:col-span-2 sm:grid-cols-2"
+              >
+                <DetailField label="Provider">
+                  {payment.gateway === "SHOPRI8_DEMO" ? "SHOPRi8 Demo" : payment.gateway}
+                </DetailField>
+                <DetailField label="Method">UPI / QR Demo</DetailField>
+                <DetailField label="Payment reference">DEMO-PAYMENT-{order.id}</DetailField>
+                <DetailField label="Amount">{formatPrice(payment.amount)}</DetailField>
+                <DetailField label="Created">
+                  {payment.createdAt ? formatDate(payment.createdAt) : "—"}
+                </DetailField>
+                <DetailField label="Paid">
+                  {payment.paidAt ? formatDate(payment.paidAt) : "—"}
+                </DetailField>
+                {payment.failureReason && (
+                  <DetailField label="Failure reason">{payment.failureReason}</DetailField>
+                )}
+              </div>
+            ))}
+            {paymentsQuery.error && (
+              <p role="alert" className="sm:col-span-2 text-xs text-destructive">
+                Could not load payment reconciliation details: {paymentsQuery.error.message}
+              </p>
+            )}
           </section>
         </div>
       </div>
@@ -1718,6 +1759,8 @@ function TaskDetails({
   task: DeliveryTask;
   data: ReturnType<typeof useAdminData>;
 }) {
+  const [workerId, setWorkerId] = useState("");
+  const [assigning, setAssigning] = useState(false);
   const order = data.orders.find((item) => item.id === task.orderId);
   const shop = shopFor(data, task.shopId);
   const worker = task.deliveryWorkerId
@@ -1734,6 +1777,24 @@ function TaskDetails({
         "DELIVERY_FAILED",
       ].includes(entry.status),
     ) ?? [];
+  const eligibleWorkers = data.workers.filter(
+    (item) => item.status === "ACTIVE" && item.available !== false,
+  );
+  const assign = async () => {
+    if (!workerId) return;
+    setAssigning(true);
+    try {
+      await data.assignDeliveryTask(task.id, workerId);
+      toast.success("Delivery task assigned");
+      setWorkerId("");
+    } catch (error) {
+      toast.error("Could not assign delivery task", {
+        description: error instanceof Error ? error.message : "Refresh the task and try again.",
+      });
+    } finally {
+      setAssigning(false);
+    }
+  };
   return (
     <>
       <DetailHeader title={task.id} subtitle={`Order ${task.orderId}`} back="/admin/delivery" />
@@ -1754,6 +1815,45 @@ function TaskDetails({
             {task.updatedAt ? new Date(task.updatedAt).toLocaleString("en-IN") : undefined}
           </DetailField>
         </section>
+        {data.firebaseMode && task.status === "AVAILABLE" && !task.deliveryWorkerId ? (
+          <section className={`${panelClass} grid gap-3 p-5 sm:grid-cols-[1fr_auto]`}>
+            <div>
+              <h2 className="font-display font-semibold">Assign delivery worker</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Only active workers marked available can be assigned. Assignment updates the task
+                and order atomically.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <select
+                aria-label="Delivery worker"
+                value={workerId}
+                onChange={(event) => setWorkerId(event.target.value)}
+                className={`${fieldClass} min-w-48`}
+              >
+                <option value="">Select worker</option>
+                {eligibleWorkers.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={!workerId || assigning}
+                onClick={() => void assign()}
+                className={`${buttonClass} disabled:cursor-not-allowed disabled:opacity-50`}
+              >
+                {assigning ? "Assigning..." : "Assign"}
+              </button>
+            </div>
+            {!eligibleWorkers.length ? (
+              <p className="text-xs text-muted-foreground sm:col-span-2">
+                No active, available workers are registered.
+              </p>
+            ) : null}
+          </section>
+        ) : null}
         <section className={`${panelClass} grid gap-4 p-5 sm:grid-cols-2`}>
           <h2 className="sm:col-span-2 font-display font-semibold">Locations</h2>
           <DetailField label="Pickup">

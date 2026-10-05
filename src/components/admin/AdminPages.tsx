@@ -3,15 +3,15 @@ import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-route
 import {
   ArrowDownRight,
   ArrowUpRight,
-  Boxes,
   Check,
+  Boxes,
   ChevronRight,
   CircleHelp,
   LogOut,
   Package,
   Search,
-  Settings2,
   Store,
+  Settings2,
   Truck,
   Users,
 } from "lucide-react";
@@ -41,6 +41,7 @@ import { cn } from "@/lib/utils";
 const panelClass = "rounded-2xl border border-border/80 bg-card/45 shadow-sm backdrop-blur-xl";
 const fieldClass =
   "h-10 w-full rounded-xl border border-input bg-background/45 px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/60";
+const labelClass = "block text-xs font-medium text-foreground";
 const buttonClass =
   "press inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-card/60 px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-accent/10";
 

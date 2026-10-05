@@ -34,6 +34,7 @@ export {
 } from "./types";
 
 export { userRepository, type UserProfile } from "./userRepository";
+export { retailerApplicationRepository } from "./retailerApplicationRepository";
 
 export {
   catalogRepository,

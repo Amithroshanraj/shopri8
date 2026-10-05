@@ -20,6 +20,7 @@ import { Route as HomeRouteImport } from './routes/home'
 import { Route as MapRouteImport } from './routes/map'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as RetailerRouteImport } from './routes/retailer'
+import { Route as RetailerApplicationRouteImport } from './routes/retailer-application'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as WorkerRouteImport } from './routes/worker'
 import { Route as AdminDashboardRouteImport } from './routes/admin.dashboard'
@@ -29,6 +30,7 @@ import { Route as AdminMoreRouteImport } from './routes/admin.more'
 import { Route as AdminOrdersRouteImport } from './routes/admin.orders'
 import { Route as AdminProductsRouteImport } from './routes/admin.products'
 import { Route as AdminProfileRouteImport } from './routes/admin.profile'
+import { Route as AdminRetailerApplicationsRouteImport } from './routes/admin.retailer-applications'
 import { Route as AdminRetailersRouteImport } from './routes/admin.retailers'
 import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
 import { Route as AdminShopsRouteImport } from './routes/admin.shops'
@@ -118,6 +120,11 @@ const RetailerRoute = RetailerRouteImport.update({
   path: '/retailer',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RetailerApplicationRoute = RetailerApplicationRouteImport.update({
+  id: '/retailer-application',
+  path: '/retailer-application',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SearchRoute = SearchRouteImport.update({
   id: '/search',
   path: '/search',
@@ -163,6 +170,12 @@ const AdminProfileRoute = AdminProfileRouteImport.update({
   path: '/profile',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminRetailerApplicationsRoute =
+  AdminRetailerApplicationsRouteImport.update({
+    id: '/retailer-applications',
+    path: '/retailer-applications',
+    getParentRoute: () => AdminRoute,
+  } as any)
 const AdminRetailersRoute = AdminRetailersRouteImport.update({
   id: '/retailers',
   path: '/retailers',
@@ -343,6 +356,7 @@ export interface FileRoutesByFullPath {
   '/map': typeof MapRoute
   '/profile': typeof ProfileRoute
   '/retailer': typeof RetailerRouteWithChildren
+  '/retailer-application': typeof RetailerApplicationRoute
   '/search': typeof SearchRoute
   '/worker': typeof WorkerRouteWithChildren
   '/admin/dashboard': typeof AdminDashboardRoute
@@ -352,6 +366,7 @@ export interface FileRoutesByFullPath {
   '/admin/orders': typeof AdminOrdersRouteWithChildren
   '/admin/products': typeof AdminProductsRouteWithChildren
   '/admin/profile': typeof AdminProfileRoute
+  '/admin/retailer-applications': typeof AdminRetailerApplicationsRoute
   '/admin/retailers': typeof AdminRetailersRouteWithChildren
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/shops': typeof AdminShopsRouteWithChildren
@@ -398,6 +413,7 @@ export interface FileRoutesByTo {
   '/map': typeof MapRoute
   '/profile': typeof ProfileRoute
   '/retailer': typeof RetailerRouteWithChildren
+  '/retailer-application': typeof RetailerApplicationRoute
   '/search': typeof SearchRoute
   '/worker': typeof WorkerRouteWithChildren
   '/admin/dashboard': typeof AdminDashboardRoute
@@ -407,6 +423,7 @@ export interface FileRoutesByTo {
   '/admin/orders': typeof AdminOrdersRouteWithChildren
   '/admin/products': typeof AdminProductsRouteWithChildren
   '/admin/profile': typeof AdminProfileRoute
+  '/admin/retailer-applications': typeof AdminRetailerApplicationsRoute
   '/admin/retailers': typeof AdminRetailersRouteWithChildren
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/shops': typeof AdminShopsRouteWithChildren
@@ -454,6 +471,7 @@ export interface FileRoutesById {
   '/map': typeof MapRoute
   '/profile': typeof ProfileRoute
   '/retailer': typeof RetailerRouteWithChildren
+  '/retailer-application': typeof RetailerApplicationRoute
   '/search': typeof SearchRoute
   '/worker': typeof WorkerRouteWithChildren
   '/admin/dashboard': typeof AdminDashboardRoute
@@ -463,6 +481,7 @@ export interface FileRoutesById {
   '/admin/orders': typeof AdminOrdersRouteWithChildren
   '/admin/products': typeof AdminProductsRouteWithChildren
   '/admin/profile': typeof AdminProfileRoute
+  '/admin/retailer-applications': typeof AdminRetailerApplicationsRoute
   '/admin/retailers': typeof AdminRetailersRouteWithChildren
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/shops': typeof AdminShopsRouteWithChildren
@@ -511,6 +530,7 @@ export interface FileRouteTypes {
     | '/map'
     | '/profile'
     | '/retailer'
+    | '/retailer-application'
     | '/search'
     | '/worker'
     | '/admin/dashboard'
@@ -520,6 +540,7 @@ export interface FileRouteTypes {
     | '/admin/orders'
     | '/admin/products'
     | '/admin/profile'
+    | '/admin/retailer-applications'
     | '/admin/retailers'
     | '/admin/settings'
     | '/admin/shops'
@@ -566,6 +587,7 @@ export interface FileRouteTypes {
     | '/map'
     | '/profile'
     | '/retailer'
+    | '/retailer-application'
     | '/search'
     | '/worker'
     | '/admin/dashboard'
@@ -575,6 +597,7 @@ export interface FileRouteTypes {
     | '/admin/orders'
     | '/admin/products'
     | '/admin/profile'
+    | '/admin/retailer-applications'
     | '/admin/retailers'
     | '/admin/settings'
     | '/admin/shops'
@@ -621,6 +644,7 @@ export interface FileRouteTypes {
     | '/map'
     | '/profile'
     | '/retailer'
+    | '/retailer-application'
     | '/search'
     | '/worker'
     | '/admin/dashboard'
@@ -630,6 +654,7 @@ export interface FileRouteTypes {
     | '/admin/orders'
     | '/admin/products'
     | '/admin/profile'
+    | '/admin/retailer-applications'
     | '/admin/retailers'
     | '/admin/settings'
     | '/admin/shops'
@@ -677,6 +702,7 @@ export interface RootRouteChildren {
   MapRoute: typeof MapRoute
   ProfileRoute: typeof ProfileRoute
   RetailerRoute: typeof RetailerRouteWithChildren
+  RetailerApplicationRoute: typeof RetailerApplicationRoute
   SearchRoute: typeof SearchRoute
   WorkerRoute: typeof WorkerRouteWithChildren
   OrdersOrderIdRoute: typeof OrdersOrderIdRoute
@@ -764,6 +790,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RetailerRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/retailer-application': {
+      id: '/retailer-application'
+      path: '/retailer-application'
+      fullPath: '/retailer-application'
+      preLoaderRoute: typeof RetailerApplicationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/search': {
       id: '/search'
       path: '/search'
@@ -825,6 +858,13 @@ declare module '@tanstack/react-router' {
       path: '/profile'
       fullPath: '/admin/profile'
       preLoaderRoute: typeof AdminProfileRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/retailer-applications': {
+      id: '/admin/retailer-applications'
+      path: '/retailer-applications'
+      fullPath: '/admin/retailer-applications'
+      preLoaderRoute: typeof AdminRetailerApplicationsRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/retailers': {
@@ -1141,6 +1181,7 @@ interface AdminRouteChildren {
   AdminOrdersRoute: typeof AdminOrdersRouteWithChildren
   AdminProductsRoute: typeof AdminProductsRouteWithChildren
   AdminProfileRoute: typeof AdminProfileRoute
+  AdminRetailerApplicationsRoute: typeof AdminRetailerApplicationsRoute
   AdminRetailersRoute: typeof AdminRetailersRouteWithChildren
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminShopsRoute: typeof AdminShopsRouteWithChildren
@@ -1155,6 +1196,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminOrdersRoute: AdminOrdersRouteWithChildren,
   AdminProductsRoute: AdminProductsRouteWithChildren,
   AdminProfileRoute: AdminProfileRoute,
+  AdminRetailerApplicationsRoute: AdminRetailerApplicationsRoute,
   AdminRetailersRoute: AdminRetailersRouteWithChildren,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminShopsRoute: AdminShopsRouteWithChildren,
@@ -1232,6 +1274,7 @@ const rootRouteChildren: RootRouteChildren = {
   MapRoute: MapRoute,
   ProfileRoute: ProfileRoute,
   RetailerRoute: RetailerRouteWithChildren,
+  RetailerApplicationRoute: RetailerApplicationRoute,
   SearchRoute: SearchRoute,
   WorkerRoute: WorkerRouteWithChildren,
   OrdersOrderIdRoute: OrdersOrderIdRoute,

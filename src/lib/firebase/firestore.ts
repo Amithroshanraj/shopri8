@@ -28,6 +28,7 @@ import {
   arrayUnion,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -56,6 +57,9 @@ import type {
   OrderStatus,
   Payment,
   Product,
+  RetailerApplication,
+  RetailerApplicationInput,
+  RetailerApplicationStatus,
   Shop,
 } from "../types";
 import { canonicalCapabilities } from "../auth/types";
@@ -69,6 +73,7 @@ export const COLLECTIONS = {
   orders: "orders",
   payments: "payments",
   deliveryTasks: "deliveryTasks",
+  retailerApplications: "retailerApplications",
 } as const;
 
 export type CollectionName = (typeof COLLECTIONS)[keyof typeof COLLECTIONS];
@@ -400,6 +405,232 @@ export async function setUserAccountStatus(uid: string, status: AccountStatus): 
   await updateDoc(userDoc(uid), { status, updatedAt: serverTimestamp() });
 }
 
+// ---------------------------------------------------------------------------
+// retailerApplications/{applicantUid}
+// ---------------------------------------------------------------------------
+
+function retailerApplicationDoc(applicantUid: string) {
+  return doc(requireDb(), COLLECTIONS.retailerApplications, applicantUid);
+}
+
+function mapRetailerApplication(snapshot: {
+  id: string;
+  data: () => DocumentData;
+}): RetailerApplication {
+  const data = snapshot.data();
+  const createdAt = timestampToIso(data["createdAt"]);
+  const updatedAt = timestampToIso(data["updatedAt"]);
+  const reviewedAt = timestampToIso(data["reviewedAt"]);
+  if (!createdAt || !updatedAt) {
+    throw new Error(`Retailer application ${snapshot.id} has invalid timestamps.`);
+  }
+  return {
+    id: snapshot.id,
+    applicantUid: String(data["applicantUid"] ?? snapshot.id),
+    applicantName: String(data["applicantName"] ?? ""),
+    applicantEmail: String(data["applicantEmail"] ?? ""),
+    applicantPhone: String(data["applicantPhone"] ?? ""),
+    shopName: String(data["shopName"] ?? ""),
+    category: data["category"] as RetailerApplication["category"],
+    description: String(data["description"] ?? ""),
+    shopPhone: String(data["shopPhone"] ?? ""),
+    address: String(data["address"] ?? ""),
+    city: String(data["city"] ?? ""),
+    state: String(data["state"] ?? ""),
+    postalCode: String(data["postalCode"] ?? ""),
+    openingTime: String(data["openingTime"] ?? ""),
+    closingTime: String(data["closingTime"] ?? ""),
+    status: data["status"] as RetailerApplicationStatus,
+    createdAt,
+    updatedAt,
+    ...(reviewedAt ? { reviewedAt } : {}),
+    ...(typeof data["reviewedBy"] === "string" ? { reviewedBy: data["reviewedBy"] } : {}),
+    ...(typeof data["rejectionReason"] === "string"
+      ? { rejectionReason: data["rejectionReason"] }
+      : {}),
+    ...(typeof data["shopId"] === "string" ? { shopId: data["shopId"] } : {}),
+  };
+}
+
+function validateRetailerApplication(input: RetailerApplicationInput): void {
+  const required: [string, string][] = [
+    ["Applicant name", input.applicantName],
+    ["Applicant email", input.applicantEmail],
+    ["Applicant phone", input.applicantPhone],
+    ["Shop name", input.shopName],
+    ["Shop phone", input.shopPhone],
+    ["Shop address", input.address],
+    ["City", input.city],
+    ["State", input.state],
+    ["Postal code", input.postalCode],
+    ["Opening time", input.openingTime],
+    ["Closing time", input.closingTime],
+  ];
+  for (const [label, value] of required) {
+    if (!value.trim()) throw new Error(`${label} is required.`);
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.applicantEmail.trim())) {
+    throw new Error("Enter a valid applicant email address.");
+  }
+  if (!/^[0-9+() -]{7,20}$/.test(input.applicantPhone.trim())) {
+    throw new Error("Enter a valid applicant phone number.");
+  }
+  if (!/^[0-9+() -]{7,20}$/.test(input.shopPhone.trim())) {
+    throw new Error("Enter a valid shop phone number.");
+  }
+  if (!/^\d{4,10}$/.test(input.postalCode.trim())) {
+    throw new Error("Enter a valid postal code.");
+  }
+  const validTime = (value: string) => /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+  if (!validTime(input.openingTime) || !validTime(input.closingTime)) {
+    throw new Error("Enter shop hours in HH:mm format.");
+  }
+  if (!input.description.trim()) throw new Error("Shop description is required.");
+}
+
+export async function fetchRetailerApplication(
+  applicantUid: string,
+): Promise<RetailerApplication | null> {
+  const snapshot = await getDoc(retailerApplicationDoc(applicantUid));
+  return snapshot.exists() ? mapRetailerApplication(snapshot) : null;
+}
+
+export async function fetchRetailerApplications(
+  status?: RetailerApplicationStatus,
+): Promise<RetailerApplication[]> {
+  const constraints: QueryConstraint[] = [];
+  if (status) constraints.push(where("status", "==", status));
+  constraints.push(orderBy("createdAt", "desc"));
+  const snapshot = await getDocs(
+    query(collection(requireDb(), COLLECTIONS.retailerApplications), ...constraints),
+  );
+  return snapshot.docs.map(mapRetailerApplication);
+}
+
+export async function submitRetailerApplication(
+  applicantUid: string,
+  input: RetailerApplicationInput,
+): Promise<void> {
+  validateRetailerApplication(input);
+  const db = requireDb();
+  const applicationRef = retailerApplicationDoc(applicantUid);
+  await runTransaction(db, async (transaction) => {
+    const existing = await transaction.get(applicationRef);
+    if (existing.exists() && existing.data()["status"] !== "REJECTED") {
+      throw new Error("You already have an application that cannot be resubmitted.");
+    }
+    const now = serverTimestamp();
+    const applicationFields = {
+      ...input,
+      applicantUid,
+      applicantName: input.applicantName.trim(),
+      applicantEmail: input.applicantEmail.trim().toLowerCase(),
+      applicantPhone: input.applicantPhone.trim(),
+      shopName: input.shopName.trim(),
+      description: input.description.trim(),
+      shopPhone: input.shopPhone.trim(),
+      address: input.address.trim(),
+      city: input.city.trim(),
+      state: input.state.trim(),
+      postalCode: input.postalCode.trim(),
+      status: "PENDING",
+      updatedAt: now,
+    };
+    if (existing.exists()) {
+      transaction.update(applicationRef, {
+        ...applicationFields,
+        reviewedAt: deleteField(),
+        reviewedBy: deleteField(),
+        rejectionReason: deleteField(),
+        shopId: deleteField(),
+      });
+    } else {
+      transaction.set(applicationRef, { ...applicationFields, createdAt: now });
+    }
+  });
+}
+
+export async function approveRetailerApplication(
+  applicantUid: string,
+  reviewerUid: string,
+): Promise<string> {
+  const db = requireDb();
+  const applicationRef = retailerApplicationDoc(applicantUid);
+  const profileRef = userDoc(applicantUid);
+  const shopRef = doc(shopsCollection());
+  return runTransaction(db, async (transaction) => {
+    const [applicationSnapshot, profileSnapshot] = await Promise.all([
+      transaction.get(applicationRef),
+      transaction.get(profileRef),
+    ]);
+    if (!applicationSnapshot.exists()) throw new Error("Retailer application not found.");
+    if (!profileSnapshot.exists()) throw new Error("Applicant profile not found.");
+    const application = applicationSnapshot.data();
+    const profile = profileSnapshot.data();
+    if (application["status"] !== "PENDING") {
+      throw new Error("Only pending retailer applications can be approved.");
+    }
+    if (profile["status"] !== "active" || !Array.isArray(profile["capabilities"])) {
+      throw new Error("Applicant account is not active or has an invalid profile.");
+    }
+    if (!profile["capabilities"].includes("customer")) {
+      throw new Error("Applicant must have an active customer capability.");
+    }
+    if (profile["capabilities"].includes("retailer")) {
+      throw new Error("Applicant already has retailer access.");
+    }
+    const now = serverTimestamp();
+    transaction.set(shopRef, {
+      ownerId: applicantUid,
+      name: application["shopName"],
+      category: application["category"],
+      description: application["description"],
+      phone: application["shopPhone"],
+      address: `${application["address"]}, ${application["city"]}, ${application["state"]} ${application["postalCode"]}`,
+      openingTime: application["openingTime"],
+      closingTime: application["closingTime"],
+      status: "ACTIVE",
+      createdAt: now,
+      updatedAt: now,
+    });
+    transaction.update(profileRef, {
+      capabilities: arrayUnion("retailer"),
+      updatedAt: now,
+    });
+    transaction.update(applicationRef, {
+      status: "APPROVED",
+      shopId: shopRef.id,
+      reviewedBy: reviewerUid,
+      reviewedAt: now,
+      updatedAt: now,
+    });
+    return shopRef.id;
+  });
+}
+
+export async function rejectRetailerApplication(
+  applicantUid: string,
+  reviewerUid: string,
+  rejectionReason: string,
+): Promise<void> {
+  const reason = rejectionReason.trim();
+  if (reason.length < 5) throw new Error("Please provide a rejection reason.");
+  const applicationRef = retailerApplicationDoc(applicantUid);
+  await runTransaction(requireDb(), async (transaction) => {
+    const snapshot = await transaction.get(applicationRef);
+    if (!snapshot.exists()) throw new Error("Retailer application not found.");
+    if (snapshot.data()["status"] !== "PENDING") {
+      throw new Error("Only pending retailer applications can be rejected.");
+    }
+    transaction.update(applicationRef, {
+      status: "REJECTED",
+      rejectionReason: reason,
+      reviewedBy: reviewerUid,
+      reviewedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
 // ---------------------------------------------------------------------------
 // shops/{shopId}
 // ---------------------------------------------------------------------------

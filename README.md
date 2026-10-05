@@ -11,6 +11,14 @@ AI-powered hyperlocal commerce platform connecting Customers, Local Retailers, D
 - **Delivery Worker App**: Dispatch coordination, pickup and drop-off tracking, route navigation.
 - **Admin Console**: Hyperlocal analytics, retailer verification, platform oversight.
 
+### Retailer onboarding
+
+In Firebase mode, an authenticated customer submits a retailer application stored in
+`retailerApplications/{uid}`. An administrator reviews it in the Admin portal. Approval
+atomically creates the applicant-owned shop and adds the `retailer` capability to the
+same `users/{uid}` profile; rejection stores a reason and allows resubmission. No second
+Firebase Auth account is created. Demo mode does not persist applications or grant roles.
+
 ---
 
 ## 🛠️ Tech Stack

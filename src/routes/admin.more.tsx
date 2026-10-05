@@ -15,9 +15,9 @@ export const Route = createFileRoute("/admin/more")({
 });
 
 const GROUPS = [
-  { title: "People", links: ADMIN_MORE_LINKS.slice(0, 2) },
-  { title: "Operations", links: ADMIN_MORE_LINKS.slice(2, 4) },
-  { title: "Platform", links: ADMIN_MORE_LINKS.slice(4) },
+  { title: "People", links: ADMIN_MORE_LINKS.slice(0, 3) },
+  { title: "Operations", links: ADMIN_MORE_LINKS.slice(3, 5) },
+  { title: "Platform", links: ADMIN_MORE_LINKS.slice(5) },
 ];
 
 function AdminMore() {

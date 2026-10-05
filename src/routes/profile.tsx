@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ChevronRight, LogIn, LogOut, MapPin, Package, User } from "lucide-react";
+import { ChevronRight, LogIn, LogOut, MapPin, Package, Store, User } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Wordmark } from "@/components/brand/Wordmark";
 import { useAuth } from "@/hooks/useAuth";
@@ -52,6 +52,23 @@ function Profile() {
           </Link>
         ))}
       </div>
+      {user ? (
+        <Link
+          to="/retailer-application"
+          className="mb-5 flex items-center gap-3 rounded-2xl border border-primary/25 bg-primary/10 p-4"
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-soft-violet">
+            <Store className="h-5 w-5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold">Become a Retailer</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              Apply to sell your products through SHOPRi8
+            </span>
+          </span>
+          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+        </Link>
+      ) : null}
       {user ? (
         <button
           onClick={() => {

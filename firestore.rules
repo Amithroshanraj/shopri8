@@ -79,6 +79,30 @@ service cloud.firestore {
       return hasCapability('admin');
     }
 
+    function retailerApplicationPath(uid) {
+      return /databases/$(database)/documents/retailerApplications/$(uid);
+    }
+
+    function approvedApplicationOwnsShop(uid) {
+      let application = getAfter(retailerApplicationPath(uid)).data;
+      let shopPath = /databases/$(database)/documents/shops/$(application.shopId);
+      return existsAfter(retailerApplicationPath(uid))
+        && application.applicantUid == uid
+        && application.status == 'APPROVED'
+        && application.shopId is string
+        && existsAfter(shopPath)
+        && getAfter(shopPath).data.ownerId == uid
+        && getAfter(/databases/$(database)/documents/users/$(uid)).data.capabilities
+          .hasAny(['retailer']);
+    }
+
+    function addsRetailerCapability() {
+      return request.resource.data.capabilities is list
+        && 'retailer' in request.resource.data.capabilities
+        && !(resource.data.capabilities is list
+             && 'retailer' in resource.data.capabilities);
+    }
+
     function validCapabilityList(capabilities) {
       return capabilities is list
         && capabilities.hasOnly(['customer', 'retailer', 'delivery_worker', 'deliveryWorker', 'admin']);
@@ -126,6 +150,7 @@ service cloud.firestore {
         && request.resource.data.status in ['active', 'suspended']
         && hasAdminCapability(request.resource.data) == hasAdminCapability(resource.data)
         && retainsLegacyWorkerCapability(request.resource.data, resource.data)
+        && (!addsRetailerCapability() || approvedApplicationOwnsShop(uid))
         && validOptionalProfileFields(request.resource.data)
         && (!changes.hasAny(['updatedAt']) || request.resource.data.updatedAt == request.time);
     }
@@ -149,7 +174,7 @@ service cloud.firestore {
 
     function validShop(data) {
       return data.keys().hasOnly([
-          'ownerId', 'name', 'category', 'description', 'image', 'address',
+          'ownerId', 'name', 'category', 'description', 'image', 'phone', 'address',
           'latitude', 'longitude', 'openingTime', 'closingTime', 'status',
           'createdAt', 'updatedAt'
         ])
@@ -165,10 +190,46 @@ service cloud.firestore {
         && data.status in ['ACTIVE', 'INACTIVE', 'SUSPENDED']
         && (!('description' in data) || data.description is string)
         && (!('image' in data) || data.image is string)
+        && (!('phone' in data) || data.phone is string)
         && (!('latitude' in data) || data.latitude is number)
         && (!('longitude' in data) || data.longitude is number)
         && (!('openingTime' in data) || data.openingTime is string)
         && (!('closingTime' in data) || data.closingTime is string);
+    }
+
+    function validRetailerApplication(data, applicantUid) {
+      return data.keys().hasOnly([
+          'applicantUid', 'applicantName', 'applicantEmail', 'applicantPhone',
+          'shopName', 'category', 'description', 'shopPhone', 'address', 'city',
+          'state', 'postalCode', 'openingTime', 'closingTime', 'status',
+          'createdAt', 'updatedAt', 'reviewedAt', 'reviewedBy',
+          'rejectionReason', 'shopId'
+        ])
+        && data.keys().hasAll([
+          'applicantUid', 'applicantName', 'applicantEmail', 'applicantPhone',
+          'shopName', 'category', 'description', 'shopPhone', 'address', 'city',
+          'state', 'postalCode', 'openingTime', 'closingTime', 'status',
+          'createdAt', 'updatedAt'
+        ])
+        && data.applicantUid == applicantUid
+        && data.applicantName is string && data.applicantName.size() > 0
+        && data.applicantEmail is string && data.applicantEmail.size() > 3
+        && data.applicantPhone is string && data.applicantPhone.size() >= 7
+        && data.shopName is string && data.shopName.size() > 0
+        && data.category in [
+          'grocery', 'fruits-vegetables', 'flowers', 'pharmacy', 'bakery',
+          'stationery', 'hardware', 'fashion', 'electronics', 'household',
+          'meat-fish', 'other'
+        ]
+        && data.description is string && data.description.size() > 0
+        && data.shopPhone is string && data.shopPhone.size() >= 7
+        && data.address is string && data.address.size() > 0
+        && data.city is string && data.city.size() > 0
+        && data.state is string && data.state.size() > 0
+        && data.postalCode is string && data.postalCode.size() >= 4
+        && data.openingTime is string && data.openingTime.size() == 5
+        && data.closingTime is string && data.closingTime.size() == 5
+        && data.status in ['PENDING', 'APPROVED', 'REJECTED'];
     }
 
     function validProduct(data) {
@@ -256,6 +317,68 @@ service cloud.firestore {
        * capabilities and status, but admin grants stay server-side.
        */
       allow update: if validSelfProfileUpdate(uid) || validAdminProfileUpdate(uid);
+      allow delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // retailerApplications/{applicantUid}
+    // -----------------------------------------------------------------------
+    match /retailerApplications/{applicantUid} {
+      allow read: if isUser(applicantUid) || isAdmin();
+
+      allow create: if isUser(applicantUid)
+        && isCustomer()
+        && validRetailerApplication(request.resource.data, applicantUid)
+        && request.resource.data.status == 'PENDING'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && !('reviewedAt' in request.resource.data)
+        && !('reviewedBy' in request.resource.data)
+        && !('rejectionReason' in request.resource.data)
+        && !('shopId' in request.resource.data);
+
+      allow update: if (
+          isUser(applicantUid)
+          && isCustomer()
+          && resource.data.status == 'REJECTED'
+          && request.resource.data.status == 'PENDING'
+          && validRetailerApplication(request.resource.data, applicantUid)
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time
+          && !('reviewedAt' in request.resource.data)
+          && !('reviewedBy' in request.resource.data)
+          && !('rejectionReason' in request.resource.data)
+          && !('shopId' in request.resource.data)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'applicantName', 'applicantEmail', 'applicantPhone', 'shopName',
+            'category', 'description', 'shopPhone', 'address', 'city', 'state',
+            'postalCode', 'openingTime', 'closingTime', 'status', 'updatedAt',
+            'reviewedAt', 'reviewedBy', 'rejectionReason', 'shopId'
+          ])
+        )
+        || (
+          isAdmin()
+          && resource.data.status == 'PENDING'
+          && request.resource.data.applicantUid == applicantUid
+          && request.resource.data.status in ['APPROVED', 'REJECTED']
+          && request.resource.data.reviewedBy == request.auth.uid
+          && request.resource.data.reviewedAt == request.time
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'reviewedBy', 'reviewedAt', 'updatedAt',
+            'rejectionReason', 'shopId'
+          ])
+          && (
+            (request.resource.data.status == 'APPROVED'
+              && !('rejectionReason' in request.resource.data)
+              && approvedApplicationOwnsShop(applicantUid))
+            || (request.resource.data.status == 'REJECTED'
+              && request.resource.data.rejectionReason is string
+              && request.resource.data.rejectionReason.size() >= 5
+              && !('shopId' in request.resource.data))
+          )
+        );
+
       allow delete: if false;
     }
 

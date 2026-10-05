@@ -29,6 +29,7 @@ export interface Shop {
   category: CategoryId;
   description: string;
   image?: string | undefined;
+  phone?: string | undefined;
   latitude?: number | undefined;
   longitude?: number | undefined;
   address: string;
@@ -38,6 +39,46 @@ export interface Shop {
   createdAt?: string;
   updatedAt?: string;
 }
+
+export type RetailerApplicationStatus = "PENDING" | "APPROVED" | "REJECTED";
+
+export interface RetailerApplication {
+  id: string;
+  applicantUid: string;
+  applicantName: string;
+  applicantEmail: string;
+  applicantPhone: string;
+  shopName: string;
+  category: CategoryId;
+  description: string;
+  shopPhone: string;
+  address: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  openingTime: string;
+  closingTime: string;
+  status: RetailerApplicationStatus;
+  createdAt: string;
+  updatedAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  rejectionReason?: string;
+  shopId?: string;
+}
+
+export type RetailerApplicationInput = Omit<
+  RetailerApplication,
+  | "id"
+  | "applicantUid"
+  | "status"
+  | "createdAt"
+  | "updatedAt"
+  | "reviewedAt"
+  | "reviewedBy"
+  | "rejectionReason"
+  | "shopId"
+>;
 
 export type CategoryId =
   | "grocery"

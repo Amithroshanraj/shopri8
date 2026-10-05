@@ -1,6 +1,7 @@
 import {
   Activity,
   Boxes,
+  ClipboardCheck,
   LayoutDashboard,
   ListChecks,
   Package,
@@ -53,6 +54,7 @@ export const ADMIN_NAV: PortalSection = {
     ["/admin/products", "catalog"],
     ["/admin/shops", "catalog"],
     ["/admin/retailers", "catalog"],
+    ["/admin/retailer-applications", "more"],
     ["/admin/more", "more"],
     ["/admin/users", "more"],
     ["/admin/delivery", "more"],
@@ -80,6 +82,12 @@ export const WORKER_MORE_LINKS = [
 ] as const;
 
 export const ADMIN_MORE_LINKS = [
+  {
+    to: "/admin/retailer-applications",
+    label: "Retailer applications",
+    description: "Review applications and approve shops",
+    icon: ClipboardCheck,
+  },
   { to: "/admin/users", label: "Users", description: "Customer accounts", icon: Users },
   { to: "/admin/retailers", label: "Retailers", description: "Retailer partners", icon: Store },
   { to: "/admin/shops", label: "Shops", description: "Registered shops", icon: Boxes },

@@ -135,9 +135,15 @@ async function createDoc(token, collection, data) {
   });
 }
 
-async function writeWithTimestamps(token, path, data, timestampFields, exists) {
+async function writeWithTimestamps(
+  token,
+  path,
+  data,
+  timestampFields,
+  exists,
+  fieldPaths = Object.keys(data),
+) {
   const fields = encodeFields(data);
-  const fieldPaths = Object.keys(data);
   return fetch(`${FS}:commit`, {
     method: "POST",
     headers: req(token),
@@ -160,6 +166,31 @@ async function writeWithTimestamps(token, path, data, timestampFields, exists) {
   });
 }
 
+async function commitWrites(token, writes) {
+  return fetch(`${FS}:commit`, {
+    method: "POST",
+    headers: req(token),
+    body: JSON.stringify({
+      writes: writes.map(({ path, data, timestampFields, exists, fieldPaths }) => ({
+        update: {
+          name: `projects/${PROJECT}/databases/(default)/documents/${path}`,
+          fields: encodeFields(data),
+        },
+        updateMask: { fieldPaths: fieldPaths ?? Object.keys(data) },
+        ...(timestampFields?.length
+          ? {
+              updateTransforms: timestampFields.map((fieldPath) => ({
+                fieldPath,
+                setToServerValue: "REQUEST_TIME",
+              })),
+            }
+          : {}),
+        ...(exists !== undefined ? { currentDocument: { exists } } : {}),
+      })),
+    }),
+  });
+}
+
 function fieldFilter(fieldPath, op, value) {
   return {
     fieldFilter: {
@@ -167,6 +198,26 @@ function fieldFilter(fieldPath, op, value) {
       op,
       value: encode(value),
     },
+  };
+}
+
+function applicationFixture(applicantUid, applicantEmail, shopName) {
+  return {
+    applicantUid,
+    applicantName: "Retailer Applicant",
+    applicantEmail,
+    applicantPhone: "+1 415 555 0132",
+    shopName,
+    category: "grocery",
+    description: "A neighbourhood grocery shop with fresh local products.",
+    shopPhone: "+1 415 555 0133",
+    address: "50 Market Street",
+    city: "San Francisco",
+    state: "California",
+    postalCode: "94105",
+    openingTime: "09:00",
+    closingTime: "21:00",
+    status: "PENDING",
   };
 }
 
@@ -253,6 +304,14 @@ async function main() {
     email: `escalated-${runId}@shopri8.test`,
     password: "Password123!",
   });
+  const approvalApplicant = await makeUser("approval-applicant", {
+    email: `approval-${runId}@shopri8.test`,
+    password: "Password123!",
+  });
+  const rejectedApplicant = await makeUser("rejected-applicant", {
+    email: `rejected-${runId}@shopri8.test`,
+    password: "Password123!",
+  });
   const admin = await makeUser("admin", {
     email: "admin@shopri8.test",
     password: "Password123!",
@@ -304,6 +363,15 @@ async function main() {
     capabilities: ["admin"],
     status: "active",
   });
+  for (const applicant of [approvalApplicant, rejectedApplicant]) {
+    await seedPlain(`users/${applicant.uid}`, {
+      uid: applicant.uid,
+      displayName: applicant.email,
+      email: applicant.email,
+      capabilities: ["customer"],
+      status: "active",
+    });
+  }
 
   await seedPlain("shops/shop-a", {
     ownerId: retailer.uid,
@@ -560,12 +628,12 @@ async function main() {
   await expect("admin", "delete a profile through the client", "deny", () =>
     fetch(`${FS}/users/${other.uid}`, { method: "DELETE", headers: req(admin.idToken) }),
   );
-  await expect("admin", "grant retailer capability", "allow", () =>
+  await expect("admin", "grant retailer capability without approval", "deny", () =>
     patchDoc(admin.idToken, `users/${other.uid}`, { capabilities: ["customer", "retailer"] }),
   );
   await expect("admin", "grant worker capability", "allow", () =>
     patchDoc(admin.idToken, `users/${other.uid}`, {
-      capabilities: ["customer", "retailer", "delivery_worker"],
+      capabilities: ["customer", "delivery_worker"],
     }),
   );
   await expect("admin", "grant legacy worker alias", "deny", () =>
@@ -575,6 +643,182 @@ async function main() {
   );
   await expect("admin", "grant admin capability", "deny", () =>
     patchDoc(admin.idToken, `users/${other.uid}`, { capabilities: ["customer", "admin"] }),
+  );
+
+  // --- retailer applications --------------------------------------------
+  const approvalApplication = applicationFixture(
+    approvalApplicant.uid,
+    approvalApplicant.email,
+    "Approved Market",
+  );
+  const createApprovalApplication = await writeWithTimestamps(
+    approvalApplicant.idToken,
+    `retailerApplications/${approvalApplicant.uid}`,
+    approvalApplication,
+    ["createdAt", "updatedAt"],
+    false,
+  );
+  record(
+    "customer applicant",
+    "create own retailer application",
+    "allow",
+    createApprovalApplication.ok ? "allow" : "deny",
+  );
+  await expect("customer applicant", "read own retailer application", "allow", () =>
+    getDoc(approvalApplicant.idToken, `retailerApplications/${approvalApplicant.uid}`),
+  );
+  await expect("customer", "read another customer's application", "deny", () =>
+    getDoc(customer.idToken, `retailerApplications/${approvalApplicant.uid}`),
+  );
+  await expect("admin", "query retailer applications", "allow", () =>
+    runQuery(admin.idToken, "retailerApplications", []),
+  );
+  await expect("customer applicant", "edit pending application", "deny", () =>
+    patchDoc(approvalApplicant.idToken, `retailerApplications/${approvalApplicant.uid}`, {
+      shopName: "Changed without resubmission",
+    }),
+  );
+  await expect("customer applicant", "self-approve application", "deny", () =>
+    writeWithTimestamps(
+      approvalApplicant.idToken,
+      `retailerApplications/${approvalApplicant.uid}`,
+      {
+        status: "APPROVED",
+        reviewedBy: approvalApplicant.uid,
+        shopId: `shop-self-approved-${runId}`,
+      },
+      ["reviewedAt", "updatedAt"],
+      true,
+    ),
+  );
+  await expect("customer applicant", "self-grant retailer capability after applying", "deny", () =>
+    patchDoc(approvalApplicant.idToken, `users/${approvalApplicant.uid}`, {
+      capabilities: ["customer", "retailer"],
+    }),
+  );
+
+  const approvedShopId = `shop-approved-${runId}`;
+  const approvalCommit = await commitWrites(admin.idToken, [
+    {
+      path: `retailerApplications/${approvalApplicant.uid}`,
+      data: {
+        status: "APPROVED",
+        reviewedBy: admin.uid,
+        shopId: approvedShopId,
+      },
+      timestampFields: ["reviewedAt", "updatedAt"],
+      fieldPaths: ["status", "reviewedBy", "reviewedAt", "updatedAt", "shopId"],
+      exists: true,
+    },
+    {
+      path: `users/${approvalApplicant.uid}`,
+      data: { capabilities: ["customer", "retailer"] },
+      timestampFields: ["updatedAt"],
+      fieldPaths: ["capabilities", "updatedAt"],
+      exists: true,
+    },
+    {
+      path: `shops/${approvedShopId}`,
+      data: {
+        ownerId: approvalApplicant.uid,
+        name: approvalApplication.shopName,
+        category: approvalApplication.category,
+        description: approvalApplication.description,
+        phone: approvalApplication.shopPhone,
+        address: `${approvalApplication.address}, ${approvalApplication.city}, ${approvalApplication.state} ${approvalApplication.postalCode}`,
+        openingTime: approvalApplication.openingTime,
+        closingTime: approvalApplication.closingTime,
+        status: "ACTIVE",
+      },
+      timestampFields: ["createdAt", "updatedAt"],
+      exists: false,
+    },
+  ]);
+  record(
+    "admin",
+    "approve application, grant capability and create owned shop atomically",
+    "allow",
+    approvalCommit.ok ? "allow" : "deny",
+  );
+  if (!approvalCommit.ok) results.at(-1).detail = await approvalCommit.text();
+  await expect("approved applicant", "read approved application", "allow", () =>
+    getDoc(approvalApplicant.idToken, `retailerApplications/${approvalApplicant.uid}`),
+  );
+  await expect("approved applicant", "read application-linked shop", "allow", () =>
+    getDoc(approvalApplicant.idToken, `shops/${approvedShopId}`),
+  );
+  await expect("admin", "cannot re-review an approved application", "deny", () =>
+    patchDoc(admin.idToken, `retailerApplications/${approvalApplicant.uid}`, {
+      status: "REJECTED",
+    }),
+  );
+
+  const rejectedApplication = applicationFixture(
+    rejectedApplicant.uid,
+    rejectedApplicant.email,
+    "Resubmitting Market",
+  );
+  const createRejectedApplication = await writeWithTimestamps(
+    rejectedApplicant.idToken,
+    `retailerApplications/${rejectedApplicant.uid}`,
+    rejectedApplication,
+    ["createdAt", "updatedAt"],
+    false,
+  );
+  record(
+    "customer applicant",
+    "create application for rejection test",
+    "allow",
+    createRejectedApplication.ok ? "allow" : "deny",
+  );
+  await expect("admin", "reject pending application with a reason", "allow", () =>
+    writeWithTimestamps(
+      admin.idToken,
+      `retailerApplications/${rejectedApplicant.uid}`,
+      {
+        status: "REJECTED",
+        reviewedBy: admin.uid,
+        rejectionReason: "Please provide a clearer shop description.",
+      },
+      ["reviewedAt", "updatedAt"],
+      true,
+    ),
+  );
+  await expect("admin", "reject application without a reason", "deny", () =>
+    writeWithTimestamps(
+      admin.idToken,
+      `retailerApplications/${rejectedApplicant.uid}`,
+      {
+        status: "REJECTED",
+        reviewedBy: admin.uid,
+        rejectionReason: "",
+      },
+      ["reviewedAt", "updatedAt"],
+      true,
+    ),
+  );
+  await expect("customer applicant", "resubmit rejected application", "allow", () =>
+    writeWithTimestamps(
+      rejectedApplicant.idToken,
+      `retailerApplications/${rejectedApplicant.uid}`,
+      { ...rejectedApplication, applicantName: "Updated Applicant", status: "PENDING" },
+      ["updatedAt"],
+      true,
+      [
+        ...Object.keys(rejectedApplication),
+        "applicantName",
+        "updatedAt",
+        "reviewedAt",
+        "reviewedBy",
+        "rejectionReason",
+        "shopId",
+      ],
+    ),
+  );
+  await expect("resubmitted applicant", "still lacks retailer capability", "deny", () =>
+    patchDoc(rejectedApplicant.idToken, `users/${rejectedApplicant.uid}`, {
+      capabilities: ["customer", "retailer"],
+    }),
   );
 
   // --- shops -------------------------------------------------------------

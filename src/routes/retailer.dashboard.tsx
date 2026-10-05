@@ -61,16 +61,20 @@ function RetailerDashboard() {
   const todaySales = todayOrders.reduce((sum, o) => sum + o.totalAmount, 0);
   const lowStockProducts = products.filter((p) => p.stock > 0 && p.stock <= 5);
 
-  const toggleShopStatus = () => {
+  const toggleShopStatus = async () => {
     if (!shop) return;
     const newStatus = shop.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
-    updateShop({ status: newStatus });
-    toast.success(newStatus === "ACTIVE" ? "Shop is now Open" : "Shop is now Closed", {
-      description:
-        newStatus === "ACTIVE"
-          ? "Customers can now view your shop and place orders."
-          : "Your shop is marked closed to customers.",
-    });
+    try {
+      await updateShop({ status: newStatus });
+      toast.success(newStatus === "ACTIVE" ? "Shop is now Open" : "Shop is now Closed", {
+        description:
+          newStatus === "ACTIVE"
+            ? "Customers can now view your shop and place orders."
+            : "Your shop is marked closed to customers.",
+      });
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Could not update shop status.");
+    }
   };
 
   return (

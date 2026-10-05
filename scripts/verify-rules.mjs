@@ -33,13 +33,17 @@ function record(actor, action, expected, actual) {
 
 async function expect(actor, action, expected, fn) {
   let actual;
+  let detail;
   try {
     const r = await fn();
     actual = r.ok ? "allow" : "deny";
+    if (!r.ok) detail = await r.text();
   } catch (e) {
     actual = "deny";
+    detail = e instanceof Error ? e.message : String(e);
   }
   record(actor, action, expected, actual);
+  if (detail) results.at(-1).detail = detail;
 }
 
 /**
@@ -99,7 +103,7 @@ function encodeFields(value) {
 }
 
 const req = (token) => ({
-  authorization: `Bearer ${token}`,
+  ...(token ? { authorization: `Bearer ${token}` } : {}),
   "content-type": "application/json",
 });
 
@@ -128,6 +132,54 @@ async function createDoc(token, collection, data) {
     method: "POST",
     headers: req(token),
     body: JSON.stringify({ fields: encodeFields(data) }),
+  });
+}
+
+async function writeWithTimestamps(token, path, data, timestampFields, exists) {
+  const fields = encodeFields(data);
+  const fieldPaths = Object.keys(data);
+  return fetch(`${FS}:commit`, {
+    method: "POST",
+    headers: req(token),
+    body: JSON.stringify({
+      writes: [
+        {
+          update: {
+            name: `projects/${PROJECT}/databases/(default)/documents/${path}`,
+            fields,
+          },
+          updateMask: { fieldPaths },
+          updateTransforms: timestampFields.map((fieldPath) => ({
+            fieldPath,
+            setToServerValue: "REQUEST_TIME",
+          })),
+          currentDocument: { exists },
+        },
+      ],
+    }),
+  });
+}
+
+function fieldFilter(fieldPath, op, value) {
+  return {
+    fieldFilter: {
+      field: { fieldPath },
+      op,
+      value: encode(value),
+    },
+  };
+}
+
+async function runQuery(token, collectionId, filters) {
+  return fetch(`${FS}:runQuery`, {
+    method: "POST",
+    headers: req(token),
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{ collectionId }],
+        ...(filters.length ? { where: { compositeFilter: { op: "AND", filters } } } : {}),
+      },
+    }),
   });
 }
 
@@ -177,6 +229,10 @@ async function main() {
     email: "retailer@shopri8.test",
     password: "Password123!",
   });
+  const retailerTwo = await makeUser("retailer-two", {
+    email: "retailer-two@shopri8.test",
+    password: "Password123!",
+  });
   const worker = await makeUser("worker", {
     email: "worker@shopri8.test",
     password: "Password123!",
@@ -220,6 +276,12 @@ async function main() {
     capabilities: ["retailer"],
     status: "active",
   });
+  await seedPlain(`users/${retailerTwo.uid}`, {
+    uid: retailerTwo.uid,
+    displayName: "Market Two",
+    capabilities: ["retailer"],
+    status: "active",
+  });
   await seedPlain(`users/${worker.uid}`, {
     uid: worker.uid,
     displayName: "Arjun",
@@ -233,7 +295,7 @@ async function main() {
   await seedPlain(`users/${suspended.uid}`, {
     uid: suspended.uid,
     displayName: "Suspended",
-    capabilities: ["customer"],
+    capabilities: ["customer", "retailer"],
     status: "suspended",
   });
   await seedPlain(`users/${admin.uid}`, {
@@ -246,16 +308,45 @@ async function main() {
   await seedPlain("shops/shop-a", {
     ownerId: retailer.uid,
     name: "Shop A",
+    category: "grocery",
+    description: "A grocery shop",
+    address: "1 Market Road",
+    openingTime: "08:00",
+    closingTime: "20:00",
     status: "ACTIVE",
   });
   await seedPlain("shops/shop-b", {
-    ownerId: "someone-else",
+    ownerId: retailerTwo.uid,
     name: "Shop B",
+    category: "grocery",
+    description: "Another grocery shop",
+    address: "2 Market Road",
+    openingTime: "08:00",
+    closingTime: "20:00",
+    status: "INACTIVE",
+  });
+  await seedPlain("shops/shop-inactive", {
+    ownerId: "someone-else",
+    name: "Inactive Shop",
+    category: "grocery",
+    description: "An inactive shop",
+    address: "3 Market Road",
+    openingTime: "08:00",
+    closingTime: "20:00",
+    status: "INACTIVE",
+  });
+  await seedPlain("shops/shop-suspended", {
+    ownerId: suspended.uid,
+    name: "Suspended Shop",
+    category: "grocery",
+    address: "6 Market Road",
     status: "ACTIVE",
   });
   await seedPlain("products/prod-a", {
     shopId: "shop-a",
     name: "Rice",
+    description: "Bag of rice",
+    category: "grocery",
     price: 340,
     stock: 10,
     availability: true,
@@ -263,9 +354,28 @@ async function main() {
   await seedPlain("products/prod-hidden", {
     shopId: "shop-a",
     name: "Out of stock",
+    description: "Unavailable item",
+    category: "grocery",
     price: 10,
     stock: 0,
     availability: false,
+  });
+  await seedPlain("products/prod-empty-available", {
+    shopId: "shop-a",
+    name: "Invalid empty stock",
+    category: "grocery",
+    price: 1,
+    stock: 0,
+    availability: true,
+  });
+  await seedPlain("products/prod-b", {
+    shopId: "shop-b",
+    name: "Oil",
+    description: "Cooking oil",
+    category: "grocery",
+    price: 10,
+    stock: 4,
+    availability: true,
   });
   await seedPlain("categories/grocery", { name: "Grocery", status: "ACTIVE" });
   await seedPlain(`addresses/addr-${customer.uid}`, {
@@ -471,17 +581,92 @@ async function main() {
   await expect("customer", "read ACTIVE shop", "allow", () =>
     getDoc(customer.idToken, "shops/shop-a"),
   );
-  await expect("retailer", "read another retailer's shop", "allow", () =>
+  await expect("customer", "read inactive shop", "deny", () =>
+    getDoc(customer.idToken, "shops/shop-inactive"),
+  );
+  await expect("admin", "read inactive shop", "allow", () =>
+    getDoc(admin.idToken, "shops/shop-inactive"),
+  );
+  await expect("customer", "query ACTIVE shops", "allow", () =>
+    runQuery(customer.idToken, "shops", [fieldFilter("status", "EQUAL", "ACTIVE")]),
+  );
+  await expect("anonymous", "read public ACTIVE shop", "allow", () => getDoc(null, "shops/shop-a"));
+  await expect("anonymous", "read inactive shop", "deny", () => getDoc(null, "shops/shop-b"));
+  await expect("customer", "query shops without an ACTIVE filter", "deny", () =>
+    runQuery(customer.idToken, "shops", []),
+  );
+  await expect("admin", "query all shops", "allow", () => runQuery(admin.idToken, "shops", []));
+  await expect("retailer", "query own shop by owner", "allow", () =>
+    runQuery(retailer.idToken, "shops", [fieldFilter("ownerId", "EQUAL", retailer.uid)]),
+  );
+  await expect("retailer two", "query own inactive shop by owner", "allow", () =>
+    runQuery(retailerTwo.idToken, "shops", [fieldFilter("ownerId", "EQUAL", retailerTwo.uid)]),
+  );
+  await expect("suspended retailer", "query own shop", "deny", () =>
+    runQuery(suspended.idToken, "shops", [fieldFilter("ownerId", "EQUAL", suspended.uid)]),
+  );
+  await expect("retailer", "read another retailer's inactive shop", "deny", () =>
     getDoc(retailer.idToken, "shops/shop-b"),
   );
   await expect("retailer", "update another retailer's shop", "deny", () =>
-    patchDoc(retailer.idToken, "shops/shop-b", { name: "Hijacked" }),
+    writeWithTimestamps(
+      retailer.idToken,
+      "shops/shop-b",
+      { name: "Hijacked" },
+      ["updatedAt"],
+      true,
+    ),
   );
   await expect("retailer", "update own shop", "allow", () =>
-    patchDoc(retailer.idToken, "shops/shop-a", { name: "Green Basket v2" }),
+    writeWithTimestamps(
+      retailer.idToken,
+      "shops/shop-a",
+      { name: "Green Basket v2" },
+      ["updatedAt"],
+      true,
+    ),
+  );
+  await expect("retailer", "change own shop owner", "deny", () =>
+    writeWithTimestamps(
+      retailer.idToken,
+      "shops/shop-a",
+      { ownerId: other.uid },
+      ["updatedAt"],
+      true,
+    ),
+  );
+  await expect("retailer", "create a shop", "deny", () =>
+    writeWithTimestamps(
+      retailer.idToken,
+      "shops/shop-retailer-created",
+      {
+        ownerId: retailer.uid,
+        name: "Unapproved",
+        category: "grocery",
+        address: "4 Market Road",
+        status: "ACTIVE",
+      },
+      ["createdAt", "updatedAt"],
+      false,
+    ),
+  );
+  await expect("admin", "create a valid shop", "allow", () =>
+    writeWithTimestamps(
+      admin.idToken,
+      `shops/shop-admin-created-${runId}`,
+      {
+        ownerId: retailer.uid,
+        name: "Admin Created",
+        category: "grocery",
+        address: "5 Market Road",
+        status: "ACTIVE",
+      },
+      ["createdAt", "updatedAt"],
+      false,
+    ),
   );
   await expect("customer", "update a shop", "deny", () =>
-    patchDoc(customer.idToken, "shops/shop-a", { name: "Nope" }),
+    writeWithTimestamps(customer.idToken, "shops/shop-a", { name: "Nope" }, ["updatedAt"], true),
   );
 
   // --- products ----------------------------------------------------------
@@ -491,11 +676,122 @@ async function main() {
   await expect("customer", "read out-of-stock product", "deny", () =>
     getDoc(customer.idToken, "products/prod-hidden"),
   );
+  await expect("anonymous", "read public in-stock product", "allow", () =>
+    getDoc(null, "products/prod-a"),
+  );
+  await expect("customer", "read available product with zero stock", "deny", () =>
+    getDoc(customer.idToken, "products/prod-empty-available"),
+  );
+  await expect("customer", "read product from inactive shop", "deny", () =>
+    getDoc(customer.idToken, "products/prod-b"),
+  );
+  await expect("customer", "query available products scoped to a shop", "allow", () =>
+    runQuery(customer.idToken, "products", [
+      fieldFilter("shopId", "EQUAL", "shop-a"),
+      fieldFilter("availability", "EQUAL", true),
+      fieldFilter("stock", "GREATER_THAN", 0),
+    ]),
+  );
+  await expect("customer", "query products without public-read filters", "deny", () =>
+    runQuery(customer.idToken, "products", []),
+  );
+  await expect("admin", "query all products", "allow", () =>
+    runQuery(admin.idToken, "products", []),
+  );
+  await expect("retailer", "query products in own shop", "allow", () =>
+    runQuery(retailer.idToken, "products", [fieldFilter("shopId", "EQUAL", "shop-a")]),
+  );
+  await expect("retailer two", "query products in own inactive shop", "allow", () =>
+    runQuery(retailerTwo.idToken, "products", [fieldFilter("shopId", "EQUAL", "shop-b")]),
+  );
+  await expect("retailer", "query products in another shop", "deny", () =>
+    runQuery(retailer.idToken, "products", [fieldFilter("shopId", "EQUAL", "shop-b")]),
+  );
   await expect("retailer", "create product in own shop", "allow", () =>
-    createDoc(retailer.idToken, "products", { shopId: "shop-a", name: "Dal", price: 155 }),
+    writeWithTimestamps(
+      retailer.idToken,
+      "products/prod-retailer-created",
+      {
+        shopId: "shop-a",
+        name: "Dal",
+        description: "Split pigeon peas",
+        category: "grocery",
+        price: 155,
+        stock: 5,
+        availability: true,
+      },
+      ["createdAt", "updatedAt"],
+      false,
+    ),
   );
   await expect("retailer", "create product in another shop", "deny", () =>
-    createDoc(retailer.idToken, "products", { shopId: "shop-b", name: "Stolen", price: 1 }),
+    writeWithTimestamps(
+      retailer.idToken,
+      "products/prod-cross-shop",
+      {
+        shopId: "shop-b",
+        name: "Stolen",
+        description: "Unauthorized",
+        category: "grocery",
+        price: 1,
+        stock: 1,
+        availability: true,
+      },
+      ["createdAt", "updatedAt"],
+      false,
+    ),
+  );
+  await expect("retailer", "create product for nonexistent shop", "deny", () =>
+    writeWithTimestamps(
+      retailer.idToken,
+      "products/prod-no-shop",
+      {
+        shopId: "missing-shop",
+        name: "Nowhere",
+        category: "grocery",
+        price: 1,
+        stock: 1,
+        availability: true,
+      },
+      ["createdAt", "updatedAt"],
+      false,
+    ),
+  );
+  await expect("retailer", "update own product", "allow", () =>
+    writeWithTimestamps(retailer.idToken, "products/prod-a", { price: 345 }, ["updatedAt"], true),
+  );
+  await expect("retailer", "update another shop's product", "deny", () =>
+    writeWithTimestamps(retailer.idToken, "products/prod-b", { price: 11 }, ["updatedAt"], true),
+  );
+  await expect("retailer", "change product shop ownership", "deny", () =>
+    writeWithTimestamps(
+      retailer.idToken,
+      "products/prod-a",
+      { shopId: "shop-b" },
+      ["updatedAt"],
+      true,
+    ),
+  );
+  await expect("retailer", "write invalid product stock", "deny", () =>
+    writeWithTimestamps(retailer.idToken, "products/prod-a", { stock: -1 }, ["updatedAt"], true),
+  );
+  await expect("retailer", "mark zero-stock product available", "deny", () =>
+    writeWithTimestamps(
+      retailer.idToken,
+      "products/prod-a",
+      { stock: 0, availability: true },
+      ["updatedAt"],
+      true,
+    ),
+  );
+  await expect("admin", "update product", "allow", () =>
+    writeWithTimestamps(admin.idToken, "products/prod-b", { price: 12 }, ["updatedAt"], true),
+  );
+  await expect("retailer", "delete own product", "allow", () =>
+    fetch(`${FS}/products/prod-retailer-created`, {
+      method: "DELETE",
+      headers: req(retailer.idToken),
+    }),
   );
   await expect("customer", "update a product price", "deny", () =>
     patchDoc(customer.idToken, "products/prod-a", { price: 1 }),
@@ -628,9 +924,8 @@ async function main() {
   );
 
   // --- unauthenticated ---------------------------------------------------
-  await expect("anonymous", "read a shop", "deny", () => getDoc("bogus-token", "shops/shop-a"));
   await expect("anonymous", "create an order", "deny", () =>
-    createDoc("bogus-token", "orders", {
+    createDoc(null, "orders", {
       customerId: "x",
       shopId: "shop-a",
       orderStatus: "PLACED",
@@ -654,6 +949,7 @@ async function main() {
     console.log("\nFAILURES:");
     for (const f of failed) {
       console.log(`  [${f.actor}] ${f.action}: expected ${f.expected}, got ${f.actual}`);
+      if (f.detail) console.log(`    ${f.detail}`);
     }
   }
   console.log(`\n${results.length - failures}/${results.length} assertions passed.`);

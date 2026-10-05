@@ -8,7 +8,8 @@ import { distanceKm, formatDistance, formatPrice, isOpenNow } from "@/lib/geo";
 import type { Product, Shop } from "@/lib/types";
 
 export function OpenBadge({ shop }: { shop: Shop }) {
-  const open = isOpenNow(shop.openingTime, shop.closingTime);
+  const hasHours = !!shop.openingTime && !!shop.closingTime;
+  const open = hasHours && isOpenNow(shop.openingTime, shop.closingTime);
   return (
     <span
       className={
@@ -17,12 +18,18 @@ export function OpenBadge({ shop }: { shop: Shop }) {
           : "rounded-full bg-muted px-2 py-0.5 text-[0.65rem] font-semibold text-muted-foreground"
       }
     >
-      {open ? "Open" : "Closed"}
+      {hasHours ? (open ? "Open" : "Closed") : "Hours unavailable"}
     </span>
   );
 }
 
 export function ShopCard({ shop }: { shop: Shop }) {
+  const distance =
+    shop.latitude === undefined || shop.longitude === undefined
+      ? null
+      : formatDistance(
+          distanceKm(DEMO_CENTER, { latitude: shop.latitude, longitude: shop.longitude }),
+        );
   return (
     <Link
       to="/shops/$shopId"
@@ -43,18 +50,16 @@ export function ShopCard({ shop }: { shop: Shop }) {
         <p className="truncate text-xs text-muted-foreground">
           {CATEGORY_BY_ID[shop.category]?.name} · {shop.address}
         </p>
-        <p className="mt-1 text-xs text-soft-violet">
-          {formatDistance(distanceKm(DEMO_CENTER, shop))} away
-        </p>
+        {distance ? <p className="mt-1 text-xs text-soft-violet">{distance} away</p> : null}
       </div>
     </Link>
   );
 }
 
-export function QtyStepper({ product }: { product: Product }) {
+export function QtyStepper({ product, shopName }: { product: Product; shopName?: string }) {
   const cart = useCart();
   const line = cart.lines.find((l) => l.productId === product.id);
-  const shopName = SHOP_BY_ID[product.shopId]?.name ?? "Shop";
+  const sellerName = shopName ?? SHOP_BY_ID[product.shopId]?.name ?? "Shop";
 
   if (!product.availability || product.stock === 0) {
     return <span className="text-xs font-medium text-muted-foreground">Out of stock</span>;
@@ -64,11 +69,11 @@ export function QtyStepper({ product }: { product: Product }) {
       <button
         onClick={(e) => {
           e.preventDefault();
-          const r = cart.add(product, shopName);
+          const r = cart.add(product, sellerName);
           if (r === "other-shop") {
             toast("Your cart has items from another shop", {
               description: "One order can contain items from one shop only.",
-              action: { label: "Replace cart", onClick: () => cart.forceAdd(product, shopName) },
+              action: { label: "Replace cart", onClick: () => cart.forceAdd(product, sellerName) },
             });
           }
         }}
@@ -103,7 +108,7 @@ export function QtyStepper({ product }: { product: Product }) {
   );
 }
 
-export function ProductRow({ product }: { product: Product }) {
+export function ProductRow({ product, shopName }: { product: Product; shopName?: string }) {
   return (
     <Link
       to="/products/$productId"
@@ -123,7 +128,7 @@ export function ProductRow({ product }: { product: Product }) {
         <p className="text-xs text-muted-foreground">{product.unit}</p>
         <p className="mt-0.5 text-sm font-semibold">{formatPrice(product.price)}</p>
       </div>
-      <QtyStepper product={product} />
+      <QtyStepper product={product} {...(shopName === undefined ? {} : { shopName })} />
     </Link>
   );
 }

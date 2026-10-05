@@ -3,10 +3,10 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { Crosshair, List, Map as MapIcon, Search, X } from "lucide-react";
 import { AppShell, EmptyState } from "@/components/layout/AppShell";
 import { ShopCard } from "@/components/shop/Cards";
-import { CATEGORIES, CATEGORY_BY_ID, SHOPS } from "@/data/demo";
-import { DEMO_CENTER } from "@/data/demo";
+import { CATEGORY_BY_ID, DEMO_CENTER } from "@/data/demo";
 import { distanceKm, formatDistance } from "@/lib/geo";
 import { cn } from "@/lib/utils";
+import { useActiveShops, useCategories } from "@/hooks/useCatalog";
 
 const ShopMap = lazy(() => import("@/components/map/ShopMap"));
 
@@ -23,6 +23,10 @@ export const Route = createFileRoute("/map")({
 });
 
 function MapPage() {
+  const shopsQuery = useActiveShops();
+  const categoriesQuery = useCategories();
+  const shops = shopsQuery.data ?? [];
+  const categories = categoriesQuery.data ?? [];
   const [mounted, setMounted] = useState(false);
   const [viewMode, setViewMode] = useState<"map" | "list">("map");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -64,7 +68,7 @@ function MapPage() {
     );
   };
 
-  const filteredShops = SHOPS.filter((shop) => {
+  const filteredShops = shops.filter((shop) => {
     const matchesCategory = !selectedCategory || shop.category === selectedCategory;
     const matchesSearch =
       !searchQuery ||
@@ -152,7 +156,7 @@ function MapPage() {
         >
           All
         </button>
-        {CATEGORIES.map((c) => (
+        {categories.map((c) => (
           <button
             key={c.id}
             onClick={() => setSelectedCategory(c.id)}
@@ -174,7 +178,9 @@ function MapPage() {
           {mounted ? (
             <Suspense fallback={<div className="h-full animate-pulse bg-muted" />}>
               <ShopMap
-                shops={filteredShops}
+                shops={filteredShops.filter(
+                  (shop) => shop.latitude !== undefined && shop.longitude !== undefined,
+                )}
                 userLocation={userLocation}
                 onShopSelect={setSelectedShop}
               />
@@ -184,6 +190,12 @@ function MapPage() {
           )}
         </div>
       )}
+
+      {shopsQuery.isError ? (
+        <p role="alert" className="mb-4 text-sm text-destructive">
+          {shopsQuery.error.message}
+        </p>
+      ) : null}
 
       {/* Shop List */}
       {displayedShops.length === 0 ? (
@@ -203,7 +215,7 @@ function MapPage() {
       {/* Shop Preview Bottom Sheet */}
       {selectedShop &&
         (() => {
-          const shop = SHOPS.find((s) => s.id === selectedShop);
+          const shop = shops.find((s) => s.id === selectedShop);
           if (!shop) return null;
           return (
             <div className="fixed inset-x-0 bottom-0 z-50 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
@@ -223,9 +235,17 @@ function MapPage() {
                       {CATEGORY_BY_ID[shop.category]?.name}
                     </p>
                     <p className="text-xs text-muted-foreground">{shop.address}</p>
-                    <p className="mt-1 text-xs text-soft-violet">
-                      {formatDistance(distanceKm(DEMO_CENTER, shop))} away
-                    </p>
+                    {shop.latitude !== undefined && shop.longitude !== undefined ? (
+                      <p className="mt-1 text-xs text-soft-violet">
+                        {formatDistance(
+                          distanceKm(DEMO_CENTER, {
+                            latitude: shop.latitude,
+                            longitude: shop.longitude,
+                          }),
+                        )}{" "}
+                        away
+                      </p>
+                    ) : null}
                   </div>
                 </div>
                 <Link

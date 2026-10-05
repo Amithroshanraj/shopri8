@@ -25,7 +25,14 @@ export function formatPrice(value: number): string {
 }
 
 /** Shop open/closed from its opening and closing time (HH:mm, local clock). */
-export function isOpenNow(openingTime: string, closingTime: string, now = new Date()): boolean {
+export function isOpenNow(
+  openingTime: string | undefined,
+  closingTime: string | undefined,
+  now = new Date(),
+): boolean {
+  const isValidTime = (time: string | undefined): time is string =>
+    !!time && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time);
+  if (!isValidTime(openingTime) || !isValidTime(closingTime)) return false;
   const toMinutes = (t: string) => {
     const [h, m] = t.split(":").map(Number);
     return (h ?? 0) * 60 + (m ?? 0);

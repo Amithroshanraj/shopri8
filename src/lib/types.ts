@@ -29,11 +29,11 @@ export interface Shop {
   category: CategoryId;
   description: string;
   image?: string | undefined;
-  latitude: number;
-  longitude: number;
+  latitude?: number | undefined;
+  longitude?: number | undefined;
   address: string;
-  openingTime: string;
-  closingTime: string;
+  openingTime?: string;
+  closingTime?: string;
   status: ShopStatus;
   createdAt?: string;
   updatedAt?: string;

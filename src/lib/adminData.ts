@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { DEFAULT_DEMO_WORKER } from "@/lib/workerAuth";
 import { DEMO_WORKER_ID } from "@/data/worker";
 import { PRODUCTS, SHOPS } from "@/data/demo";
@@ -6,6 +7,9 @@ import { useOrders } from "@/lib/store";
 import { useRetailerStore } from "@/lib/retailerStore";
 import { useWorkerStore } from "@/lib/workerStore";
 import type { DeliveryTask, Order, Product, Shop } from "@/lib/types";
+import { useAllProducts, useAllShops, catalogQueryKeys } from "@/hooks/useCatalog";
+import { isFirebaseActive } from "@/lib/firebase";
+import { productRepository, shopRepository } from "@/lib/repositories";
 
 const CONTROLS_STORAGE_KEY = "shopri8.admin.controls.v1";
 const CONTROLS_UPDATED_EVENT = "shopri8:admin-controls-updated";
@@ -97,19 +101,27 @@ function mergeById<T extends { id: string }>(...groups: T[][]): T[] {
   return [...byId.values()];
 }
 
-function mergeShopCatalog(base: Shop[], retailerShop: Shop): Shop[] {
-  return mergeById(base, [retailerShop]);
+function mergeShopCatalog(base: Shop[], retailerShop: Shop | null): Shop[] {
+  return retailerShop ? mergeById(base, [retailerShop]) : base;
 }
 
 export function useAdminData() {
+  const queryClient = useQueryClient();
+  const firebaseMode = isFirebaseActive;
+  const firebaseShops = useAllShops(firebaseMode);
+  const firebaseProducts = useAllProducts(firebaseMode);
   const customerStore = useOrders();
   const retailerStore = useRetailerStore();
   const workerStore = useWorkerStore();
   const controlsState = useAdminControls();
 
   const orders = newestOrderPerId(customerStore.orders, retailerStore.orders, workerStore.orders);
-  const shops = mergeShopCatalog(SHOPS, retailerStore.shop);
-  const products = mergeById(PRODUCTS, retailerStore.products);
+  const shops = firebaseMode
+    ? (firebaseShops.data ?? [])
+    : mergeShopCatalog(SHOPS, retailerStore.shop);
+  const products = firebaseMode
+    ? (firebaseProducts.data ?? [])
+    : mergeById(PRODUCTS, retailerStore.products);
   const tasks = workerStore.tasks;
 
   const customers = new Map<string, ManagedUser>();
@@ -163,6 +175,7 @@ export function useAdminData() {
 
   const normalizedTasks: DeliveryTask[] = tasks;
   const normalizedProducts: Product[] = products.map((product) => {
+    if (firebaseMode) return product;
     const override = controlsState.controls.productOverrides[product.id] ?? {};
     const stock = override.stock ?? product.stock;
     return {
@@ -176,11 +189,22 @@ export function useAdminData() {
     };
   });
 
-  const updateProduct = (
+  const updateProduct = async (
     productId: string,
     updates: Partial<Pick<Product, "price" | "stock" | "availability">>,
-  ) => {
+  ): Promise<void> => {
     const safeUpdates = updates.stock === 0 ? { ...updates, availability: false } : updates;
+    if (firebaseMode) {
+      const result = await productRepository.update(productId, safeUpdates);
+      if (!result.ok) throw new Error(result.message);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: catalogQueryKeys.allProducts }),
+        queryClient.invalidateQueries({ queryKey: catalogQueryKeys.products }),
+        queryClient.invalidateQueries({ queryKey: ["products", productId] }),
+        queryClient.invalidateQueries({ queryKey: ["products", "shop"] }),
+      ]);
+      return;
+    }
     controlsState.update({
       productOverrides: {
         ...controlsState.controls.productOverrides,
@@ -190,12 +214,43 @@ export function useAdminData() {
         },
       },
     });
-    retailerStore.updateProduct(productId, safeUpdates);
+    await retailerStore.updateProduct(productId, safeUpdates);
   };
 
+  const updateShop = async (shopId: string, updates: Partial<Shop>): Promise<void> => {
+    if (firebaseMode) {
+      const result = await shopRepository.update(shopId, updates);
+      if (!result.ok) throw new Error(result.message);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: catalogQueryKeys.allShops }),
+        queryClient.invalidateQueries({ queryKey: catalogQueryKeys.activeShops }),
+        queryClient.invalidateQueries({ queryKey: catalogQueryKeys.shop(shopId) }),
+        queryClient.invalidateQueries({ queryKey: catalogQueryKeys.products }),
+      ]);
+      return;
+    }
+    controlsState.update({
+      shopStatus: {
+        ...controlsState.controls.shopStatus,
+        ...(updates.status === "ACTIVE" || updates.status === "INACTIVE"
+          ? { [shopId]: updates.status }
+          : {}),
+      },
+    });
+    if (shopId === "shop-green-basket") await retailerStore.updateShop(updates);
+  };
+
+  const controls = firebaseMode
+    ? { ...controlsState.controls, shopStatus: {}, productAvailability: {}, productOverrides: {} }
+    : controlsState.controls;
+
   return {
-    controls: controlsState.controls,
-    controlsReady: controlsState.ready,
+    controls,
+    controlsReady: firebaseMode
+      ? firebaseShops.isSuccess && firebaseProducts.isSuccess
+      : controlsState.ready,
+    error: firebaseShops.error?.message ?? firebaseProducts.error?.message ?? null,
+    firebaseMode,
     updateControls: controlsState.update,
     users,
     customers: users.filter((user) => user.role === "Customer"),
@@ -203,13 +258,19 @@ export function useAdminData() {
     workers,
     shops: shops.map((shop) => ({
       ...shop,
-      status: controlsState.controls.shopStatus[shop.id] ?? shop.status,
+      status: controls.shopStatus[shop.id] ?? shop.status,
     })),
     products: normalizedProducts,
     orders,
     tasks: normalizedTasks,
-    loading: !customerStore.ready || retailerStore.loading || workerStore.loading,
+    loading:
+      !customerStore.ready ||
+      workerStore.loading ||
+      (firebaseMode
+        ? firebaseShops.isPending || firebaseProducts.isPending
+        : retailerStore.loading),
     updateRetailerShop: retailerStore.updateShop,
     updateProduct,
+    updateShop,
   };
 }

@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useRetailerStore } from "@/lib/retailerStore";
 import { CATEGORIES, CATEGORY_BY_ID } from "@/data/demo";
+import { useCategories } from "@/hooks/useCatalog";
+import { firebaseIsActive } from "@/lib/auth";
 import type { CategoryId } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +21,8 @@ export const Route = createFileRoute("/retailer/shop")({
 
 function RetailerShop() {
   const { shop, loading, updateShop, openShop, closeShop } = useRetailerStore();
+  const categoriesQuery = useCategories();
+  const categories = firebaseIsActive() ? (categoriesQuery.data ?? []) : CATEGORIES;
   const [saving, setSaving] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -75,7 +79,7 @@ function RetailerShop() {
     );
   }
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formData.name.trim()) {
@@ -90,7 +94,7 @@ function RetailerShop() {
 
     setSaving(true);
     try {
-      updateShop({
+      await updateShop({
         name: formData.name.trim(),
         category: formData.category,
         description: formData.description.trim(),
@@ -105,22 +109,27 @@ function RetailerShop() {
       toast.success("Shop Profile Saved", {
         description: "Your shop changes are now updated across SHOPRi8.",
       });
-    } catch {
-      toast.error("Failed to update shop");
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Failed to update shop");
     } finally {
       setSaving(false);
     }
   };
 
-  const handleToggleStoreStatus = () => {
+  const handleToggleStoreStatus = async () => {
     const nextStatus = shop.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
-    setFormData((current) => ({ ...current, status: nextStatus }));
-    if (nextStatus === "ACTIVE") {
-      openShop();
-      toast.success("Shop Opened", { description: "Customers can now view and place orders." });
-    } else {
-      closeShop();
-      toast.success("Shop Closed", { description: "Shop is now marked closed." });
+    try {
+      if (nextStatus === "ACTIVE") await openShop();
+      else await closeShop();
+      setFormData((current) => ({ ...current, status: nextStatus }));
+      toast.success(nextStatus === "ACTIVE" ? "Shop Opened" : "Shop Closed", {
+        description:
+          nextStatus === "ACTIVE"
+            ? "Customers can now view and place orders."
+            : "Shop is now marked closed.",
+      });
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Failed to update shop status");
     }
   };
 
@@ -181,8 +190,10 @@ function RetailerShop() {
               </span>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {CATEGORY_BY_ID[shop.category]?.name || shop.category} · {shop.openingTime} –{" "}
-              {shop.closingTime}
+              {categories.find((category) => category.id === shop.category)?.name ??
+                CATEGORY_BY_ID[shop.category]?.name ??
+                shop.category}{" "}
+              · {shop.openingTime} – {shop.closingTime}
             </p>
             <p className="text-xs text-muted-foreground mt-1 truncate">📍 {shop.address}</p>
           </div>
@@ -213,12 +224,20 @@ function RetailerShop() {
               className="w-full rounded-xl border border-input bg-background/50 px-4 py-2.5 text-sm outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
               required
             >
-              {CATEGORIES.map((cat) => (
+              {categories.map((cat) => (
                 <option key={cat.id} value={cat.id} className="bg-background text-foreground">
                   {cat.name} ({cat.description})
                 </option>
               ))}
             </select>
+            {firebaseIsActive() && categoriesQuery.isPending ? (
+              <p className="mt-1 text-xs text-muted-foreground">Loading categories...</p>
+            ) : null}
+            {firebaseIsActive() && categoriesQuery.isError ? (
+              <p role="alert" className="mt-1 text-xs text-destructive">
+                Could not load categories: {categoriesQuery.error.message}
+              </p>
+            ) : null}
           </div>
 
           <div>

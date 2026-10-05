@@ -57,10 +57,21 @@ function PageHeading({ title, subtitle }: { title: string; subtitle?: string }) 
         {subtitle ? <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p> : null}
       </div>
       <span className="rounded-full border border-primary/25 bg-primary/10 px-2.5 py-1 text-[0.68rem] font-medium text-soft-violet">
-        Local demo data
+        {firebaseIsActive() ? "Firestore catalogue" : "Local demo data"}
       </span>
     </div>
   );
+}
+
+function AdminDataError({ message }: { message: string | null }) {
+  return message ? (
+    <p
+      role="alert"
+      className="mb-4 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
+    >
+      Could not load or save catalogue data: {message}
+    </p>
+  ) : null;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -198,6 +209,7 @@ function formatDate(value?: string) {
 }
 
 function isShopOpen(shop: Shop) {
+  if (!shop.openingTime || !shop.closingTime) return false;
   const now = new Date();
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
   const [openHour = 0, openMinute = 0] = shop.openingTime.split(":").map(Number);
@@ -368,8 +380,9 @@ export function AdminDashboardPage() {
   return (
     <>
       <PageHeading title="Admin Dashboard" subtitle="Manage and monitor the SHOPRi8 ecosystem." />
+      <AdminDataError message={data.error} />
       {data.loading ? (
-        <p className="mb-4 text-xs text-muted-foreground">Refreshing local demo stores...</p>
+        <p className="mb-4 text-xs text-muted-foreground">Refreshing platform data...</p>
       ) : null}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
         {metrics.map(({ label, value, icon: Icon, href }) => (
@@ -683,18 +696,19 @@ export function AdminRetailersPage() {
         .includes(query.toLowerCase())
     );
   });
-  const toggle = (retailer: ManagedUser) => {
+  const toggle = async (retailer: ManagedUser) => {
     const next: ManagedStatus =
       (data.controls.retailerStatus[retailer.id] ?? retailer.status) === "ACTIVE"
         ? "INACTIVE"
         : "ACTIVE";
     const shop = data.shops.find((item) => item.ownerId === retailer.id);
-    data.updateControls({
-      retailerStatus: { ...data.controls.retailerStatus, [retailer.id]: next },
-      ...(shop ? { shopStatus: { ...data.controls.shopStatus, [shop.id]: next } } : {}),
-    });
-    if (shop) {
-      if (shop.id === "shop-green-basket") data.updateRetailerShop({ status: next });
+    try {
+      if (shop) await data.updateShop(shop.id, { status: next });
+      data.updateControls({
+        retailerStatus: { ...data.controls.retailerStatus, [retailer.id]: next },
+      });
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Could not update retailer status.");
     }
   };
   const columns: Column<ManagedUser>[] = [
@@ -737,6 +751,7 @@ export function AdminRetailersPage() {
         title="Retailers"
         subtitle="Retailer records currently represented by local shop ownership data."
       />
+      <AdminDataError message={data.error} />
       <div className={`${panelClass} mb-4 flex flex-wrap gap-3 p-4`}>
         <SearchBox value={query} onChange={setQuery} placeholder="Search retailer or shop" />
         <div className="flex gap-2">
@@ -807,18 +822,24 @@ export function AdminShopsPage() {
       (openState === "All hours" || (openState === "Open now" ? currentlyOpen : !currentlyOpen))
     );
   });
-  const toggle = (shop: Shop) => {
+  const toggle = async (shop: Shop) => {
     const next: ManagedStatus =
       (data.controls.shopStatus[shop.id] ?? shop.status) === "ACTIVE" ? "INACTIVE" : "ACTIVE";
-    data.updateControls({ shopStatus: { ...data.controls.shopStatus, [shop.id]: next } });
-    if (shop.id === "shop-green-basket") data.updateRetailerShop({ status: next });
+    try {
+      await data.updateShop(shop.id, { status: next });
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Could not update shop status.");
+    }
   };
   const columns: Column<Shop>[] = [
     { label: "Shop", render: (shop) => <span className="font-semibold">{shop.name}</span> },
     { label: "Category", render: (shop) => shop.category.replaceAll("-", " ") },
     { label: "Retailer", render: (shop) => shop.name },
     { label: "Location", render: (shop) => shop.address },
-    { label: "Hours", render: (shop) => `${shop.openingTime}–${shop.closingTime}` },
+    {
+      label: "Hours",
+      render: (shop) => `${shop.openingTime ?? "Not set"}–${shop.closingTime ?? "Not set"}`,
+    },
     {
       label: "Open now",
       render: (shop) => <StatusBadge status={isShopOpen(shop) ? "OPEN" : "CLOSED"} />,
@@ -850,8 +871,9 @@ export function AdminShopsPage() {
     <>
       <PageHeading
         title="Shops"
-        subtitle="Review shops, ownership, opening hours, and local status."
+        subtitle="Review shops, ownership, opening hours, and availability."
       />
+      <AdminDataError message={data.error} />
       <div className={`${panelClass} mb-4 flex flex-wrap gap-3 p-4`}>
         <SearchBox value={query} onChange={setQuery} placeholder="Search shop or address" />
         <select
@@ -901,7 +923,7 @@ export function AdminShopsPage() {
             </div>
             <p className="mt-2 text-xs text-muted-foreground">{shop.address}</p>
             <p className="mt-1 text-xs">
-              {shop.openingTime}–{shop.closingTime}
+              {shop.openingTime ?? "Not set"}–{shop.closingTime ?? "Not set"}
             </p>
             <div className="mt-2">
               <StatusBadge status={isShopOpen(shop) ? "OPEN" : "CLOSED"} />
@@ -944,12 +966,15 @@ export function AdminProductsPage() {
             : availability === stockState))
     );
   });
-  const toggle = (product: Product) => {
+  const toggle = async (product: Product) => {
     const next = !(data.controls.productAvailability[product.id] ?? product.availability);
-    data.updateControls({
-      productAvailability: { ...data.controls.productAvailability, [product.id]: next },
-    });
-    data.updateProduct(product.id, { availability: next });
+    try {
+      await data.updateProduct(product.id, { availability: next });
+    } catch (cause) {
+      toast.error(
+        cause instanceof Error ? cause.message : "Could not update product availability.",
+      );
+    }
   };
   const categories = [...new Set(data.products.map((product) => product.category))];
   const columns: Column<Product>[] = [
@@ -1000,8 +1025,13 @@ export function AdminProductsPage() {
     <>
       <PageHeading
         title="Products"
-        subtitle="Catalogue and stock overview from the shared demo product model."
+        subtitle={
+          firebaseIsActive()
+            ? "Catalogue and stock overview from Firestore."
+            : "Catalogue and stock overview from the shared demo product model."
+        }
       />
+      <AdminDataError message={data.error} />
       <div className={`${panelClass} mb-4 flex flex-wrap gap-3 p-4`}>
         <SearchBox value={query} onChange={setQuery} placeholder="Search product name" />
         <select
@@ -1488,6 +1518,18 @@ export function AdminDetailPage({
   const data = useAdminData();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const id = decodeURIComponent(pathname.split("/").pop() ?? "");
+
+  if (data.loading) {
+    return <p className="py-12 text-center text-sm text-muted-foreground">Loading record...</p>;
+  }
+  if (data.error) {
+    return (
+      <div className={`${panelClass} p-5`}>
+        <AdminDataError message={data.error} />
+      </div>
+    );
+  }
+
   const order = section === "orders" ? data.orders.find((item) => item.id === id) : undefined;
   const task = section === "delivery" ? data.tasks.find((item) => item.id === id) : undefined;
   const shop = section === "shops" ? data.shops.find((item) => item.id === id) : undefined;
@@ -1768,10 +1810,13 @@ function ShopDetails({ shop, data }: { shop: Shop; data: ReturnType<typeof useAd
   const products = data.products.filter((item) => item.shopId === shop.id);
   const orders = data.orders.filter((item) => item.shopId === shop.id);
   const active = data.controls.shopStatus[shop.id] ?? shop.status;
-  const toggle = () => {
+  const toggle = async () => {
     const next: ManagedStatus = active === "ACTIVE" ? "INACTIVE" : "ACTIVE";
-    data.updateControls({ shopStatus: { ...data.controls.shopStatus, [shop.id]: next } });
-    if (shop.id === "shop-green-basket") data.updateRetailerShop({ status: next });
+    try {
+      await data.updateShop(shop.id, { status: next });
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Could not update shop status.");
+    }
   };
   return (
     <>
@@ -1792,10 +1837,12 @@ function ShopDetails({ shop, data }: { shop: Shop; data: ReturnType<typeof useAd
           <DetailField label="Retailer">{retailer?.name}</DetailField>
           <DetailField label="Address">{shop.address}</DetailField>
           <DetailField label="Coordinates">
-            {shop.latitude.toFixed(5)}, {shop.longitude.toFixed(5)}
+            {shop.latitude === undefined || shop.longitude === undefined
+              ? "Not provided"
+              : `${shop.latitude.toFixed(5)}, ${shop.longitude.toFixed(5)}`}
           </DetailField>
-          <DetailField label="Opening time">{shop.openingTime}</DetailField>
-          <DetailField label="Closing time">{shop.closingTime}</DetailField>
+          <DetailField label="Opening time">{shop.openingTime ?? "Not set"}</DetailField>
+          <DetailField label="Closing time">{shop.closingTime ?? "Not set"}</DetailField>
         </div>
         <div className="mt-6 grid gap-3 border-t border-border/60 pt-4 sm:grid-cols-2">
           <div>
@@ -1822,20 +1869,27 @@ function ProductDetails({
   const [price, setPrice] = useState(String(product.price));
   const [stock, setStock] = useState(String(product.stock));
   const available = data.controls.productAvailability[product.id] ?? product.availability;
-  const save = (event: React.FormEvent<HTMLFormElement>) => {
+  const save = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    data.updateProduct(product.id, {
-      price: Math.max(0, Number(price) || 0),
-      stock: Math.max(0, Number(stock) || 0),
-    });
-    toast.success("Product updated in the retailer demo store when available.");
+    try {
+      await data.updateProduct(product.id, {
+        price: Math.max(0, Number(price) || 0),
+        stock: Math.max(0, Number(stock) || 0),
+      });
+      toast.success("Product updated.");
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Could not update product.");
+    }
   };
-  const toggle = () => {
+  const toggle = async () => {
     const next = !available;
-    data.updateControls({
-      productAvailability: { ...data.controls.productAvailability, [product.id]: next },
-    });
-    data.updateProduct(product.id, { availability: next });
+    try {
+      await data.updateProduct(product.id, { availability: next });
+    } catch (cause) {
+      toast.error(
+        cause instanceof Error ? cause.message : "Could not update product availability.",
+      );
+    }
   };
   return (
     <>
@@ -1983,14 +2037,15 @@ function RetailerDetails({
   const products = shop ? data.products.filter((product) => product.shopId === shop.id) : [];
   const orders = shop ? data.orders.filter((order) => order.shopId === shop.id) : [];
   const active = data.controls.retailerStatus[retailer.id] ?? retailer.status;
-  const toggle = () => {
+  const toggle = async () => {
     const next: ManagedStatus = active === "ACTIVE" ? "INACTIVE" : "ACTIVE";
-    data.updateControls({
-      retailerStatus: { ...data.controls.retailerStatus, [retailer.id]: next },
-      ...(shop ? { shopStatus: { ...data.controls.shopStatus, [shop.id]: next } } : {}),
-    });
-    if (shop) {
-      if (shop.id === "shop-green-basket") data.updateRetailerShop({ status: next });
+    try {
+      if (shop) await data.updateShop(shop.id, { status: next });
+      data.updateControls({
+        retailerStatus: { ...data.controls.retailerStatus, [retailer.id]: next },
+      });
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Could not update retailer shop.");
     }
   };
   return (

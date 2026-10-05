@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { CATEGORIES } from "@/data/demo";
 import { cn } from "@/lib/utils";
+import { useCategories } from "@/hooks/useCatalog";
 
 export function CategoryCarousel() {
+  const { data: categories = [] } = useCategories();
   const [isPaused, setIsPaused] = useState(false);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -21,7 +22,7 @@ export function CategoryCarousel() {
   }, []);
 
   // Duplicate categories for seamless looping (3 sets for smooth infinite scroll)
-  const duplicatedCategories = [...CATEGORIES, ...CATEGORIES, ...CATEGORIES];
+  const duplicatedCategories = [...categories, ...categories, ...categories];
 
   // Auto-scroll logic
   useEffect(() => {

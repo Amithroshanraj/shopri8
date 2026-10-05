@@ -142,6 +142,65 @@ service cloud.firestore {
       return isRetailer() && ownsShop(productData.shopId);
     }
 
+    function isActiveShop(shopId) {
+      return exists(/databases/$(database)/documents/shops/$(shopId))
+        && get(/databases/$(database)/documents/shops/$(shopId)).data.status == 'ACTIVE';
+    }
+
+    function validShop(data) {
+      return data.keys().hasOnly([
+          'ownerId', 'name', 'category', 'description', 'image', 'address',
+          'latitude', 'longitude', 'openingTime', 'closingTime', 'status',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasAll(['ownerId', 'name', 'category', 'address', 'status'])
+        && data.ownerId is string
+        && data.name is string && data.name.size() > 0
+        && data.category in [
+          'grocery', 'fruits-vegetables', 'flowers', 'pharmacy', 'bakery',
+          'stationery', 'hardware', 'fashion', 'electronics', 'household',
+          'meat-fish', 'other'
+        ]
+        && data.address is string
+        && data.status in ['ACTIVE', 'INACTIVE', 'SUSPENDED']
+        && (!('description' in data) || data.description is string)
+        && (!('image' in data) || data.image is string)
+        && (!('latitude' in data) || data.latitude is number)
+        && (!('longitude' in data) || data.longitude is number)
+        && (!('openingTime' in data) || data.openingTime is string)
+        && (!('closingTime' in data) || data.closingTime is string);
+    }
+
+    function validProduct(data) {
+      return data.keys().hasOnly([
+          'shopId', 'name', 'description', 'category', 'price', 'stock',
+          'availability', 'image', 'imageSource', 'unit', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasAll([
+          'shopId', 'name', 'category', 'price', 'stock', 'availability', 'updatedAt'
+        ])
+        && data.shopId is string
+        && data.name is string && data.name.size() > 0
+        && data.category in [
+          'grocery', 'fruits-vegetables', 'flowers', 'pharmacy', 'bakery',
+          'stationery', 'hardware', 'fashion', 'electronics', 'household',
+          'meat-fish', 'other'
+        ]
+        && data.price is number && data.price >= 0
+        && data.stock is int && data.stock >= 0
+        && data.availability is bool
+        && (!data.availability || data.stock > 0)
+        && (!('description' in data) || data.description is string)
+        && (!('image' in data) || data.image is string)
+        && (!('unit' in data) || data.unit is string)
+        && (!('imageSource' in data)
+            || (data.imageSource is map
+                && data.imageSource.keys().hasOnly(['type', 'ref', 'name'])
+                && data.imageSource.type in ['catalog', 'uploaded']
+                && data.imageSource.ref is string
+                && (!('name' in data.imageSource) || data.imageSource.name is string)));
+    }
+
     /**
      * Legal order transitions, mirrored from `src/lib/retailerStore.tsx` and
      * `src/lib/workerStore.tsx`.
@@ -205,19 +264,42 @@ service cloud.firestore {
     // -----------------------------------------------------------------------
     match /shops/{shopId} {
       // The public storefront may read ACTIVE shops and browse them.
-      allow read: if resource.data.status == 'ACTIVE' || ownsShop(shopId) || isAdmin();
+      allow read: if resource.data.status == 'ACTIVE'
+        || (isRetailer() && resource.data.ownerId == request.auth.uid)
+        || isAdmin();
 
-      // Only admins create shops, or a retailer claiming an unowned shop.
+      // Shop creation is reserved for trusted admins; retailers are linked to
+      // a pre-provisioned shop and cannot claim or duplicate shop records.
       allow create: if isAdmin()
-        || (isRetailer() && (!request.resource.data.ownerId
-                            || request.resource.data.ownerId == request.auth.uid));
+        && validShop(request.resource.data)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
 
       // The owning retailer may edit their own shop, but may not hand it to
       // another account. Admins may edit anything.
-      allow update: if isAdmin()
-        || (ownsShop(shopId) && request.resource.data.ownerId == resource.data.ownerId);
+      allow update: if isAdminProfileShopUpdate()
+        || (ownsShop(shopId)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'name', 'category', 'description', 'image', 'address', 'latitude',
+              'longitude', 'openingTime', 'closingTime', 'status', 'updatedAt'
+            ])
+            && request.resource.data.ownerId == resource.data.ownerId
+            && (!('createdAt' in resource.data)
+                || request.resource.data.createdAt == resource.data.createdAt)
+            && request.resource.data.status in ['ACTIVE', 'INACTIVE']
+            && validShop(request.resource.data)
+            && request.resource.data.updatedAt == request.time);
 
       allow delete: if isAdmin();
+
+      function isAdminProfileShopUpdate() {
+        return isAdmin()
+          && validShop(request.resource.data)
+          && request.resource.data.ownerId == resource.data.ownerId
+          && (!('createdAt' in resource.data)
+              || request.resource.data.createdAt == resource.data.createdAt)
+          && request.resource.data.updatedAt == request.time;
+      }
     }
 
     // -----------------------------------------------------------------------
@@ -233,17 +315,26 @@ service cloud.firestore {
     // products/{productId}
     // -----------------------------------------------------------------------
     match /products/{productId} {
-      // Browsable when available, or by the owning retailer, or by admins.
-      allow read: if (resource.data.availability == true && resource.data.stock > 0)
+      // Public products must be purchasable and belong to an active shop.
+      allow read: if (resource.data.availability == true
+                      && resource.data.stock > 0
+                      && isActiveShop(resource.data.shopId))
                   || ownsShopOfProduct(resource.data)
                   || isAdmin();
 
-      // Only the retailer who owns the target shop may create the product. On
-      // create there is no existing document, so the shop is taken from the
-      // incoming data and checked against `shops/{shopId}.ownerId`.
-      allow create: if isRetailer() && ownsShop(request.resource.data.shopId);
+      allow create: if validProduct(request.resource.data)
+        && exists(/databases/$(database)/documents/shops/$(request.resource.data.shopId))
+        && 'createdAt' in request.resource.data
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && (isAdmin() || (isRetailer() && ownsShop(request.resource.data.shopId)));
 
-      allow update: if isAdmin() || (isRetailer() && ownsShopOfProduct(resource.data));
+      allow update: if validProduct(request.resource.data)
+        && request.resource.data.shopId == resource.data.shopId
+        && (!('createdAt' in resource.data)
+            || request.resource.data.createdAt == resource.data.createdAt)
+        && request.resource.data.updatedAt == request.time
+        && (isAdmin() || (isRetailer() && ownsShopOfProduct(resource.data)));
 
       allow delete: if isAdmin() || (isRetailer() && ownsShopOfProduct(resource.data));
     }

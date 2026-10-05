@@ -4,15 +4,24 @@ import { AppShell } from "@/components/layout/AppShell";
 import { CategoryCarousel } from "@/components/common/CategoryCarousel";
 import { Wordmark } from "@/components/brand/Wordmark";
 import { ShopCard } from "@/components/shop/Cards";
-import { CATEGORIES, DEMO_CENTER, DEMO_MODE_NOTE, SHOPS } from "@/data/demo";
+import { DEMO_CENTER, DEMO_MODE_NOTE } from "@/data/demo";
 import { distanceKm } from "@/lib/geo";
-import { isFirebaseConfigured } from "@/lib/firebase/config";
+import { isFirebaseActive } from "@/lib/firebase";
 import { useAuth } from "@/hooks/useAuth";
+import { useActiveShops } from "@/hooks/useCatalog";
 
 export function CustomerHome() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const nearby = [...SHOPS].sort((a, b) => distanceKm(DEMO_CENTER, a) - distanceKm(DEMO_CENTER, b));
+  const shopsQuery = useActiveShops();
+  const shops = shopsQuery.data ?? [];
+  const nearby = [...shops].sort((a, b) => {
+    const distance = (shop: (typeof shops)[number]) =>
+      shop.latitude === undefined || shop.longitude === undefined
+        ? Number.POSITIVE_INFINITY
+        : distanceKm(DEMO_CENTER, { latitude: shop.latitude, longitude: shop.longitude });
+    return distance(a) - distance(b);
+  });
 
   const signOut = () => {
     logout();
@@ -55,7 +64,7 @@ export function CustomerHome() {
         <Search className="h-4 w-4 text-soft-violet" /> Search shops or products
       </Link>
 
-      {!isFirebaseConfigured ? (
+      {!isFirebaseActive ? (
         <p className="mb-5 rounded-xl border border-border bg-primary/10 px-3 py-2 text-xs text-soft-violet">
           {DEMO_MODE_NOTE}
         </p>
@@ -73,6 +82,13 @@ export function CustomerHome() {
 
       <section>
         <h2 className="mb-3 font-display text-base font-semibold">Nearby shops</h2>
+        {shopsQuery.isPending ? (
+          <p className="text-sm text-muted-foreground">Loading shops...</p>
+        ) : shopsQuery.isError ? (
+          <p role="alert" className="text-sm text-destructive">
+            {shopsQuery.error.message}
+          </p>
+        ) : null}
         <div className="grid gap-3 md:grid-cols-2">
           {nearby.map((s) => (
             <ShopCard key={s.id} shop={s} />

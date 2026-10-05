@@ -4,6 +4,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useRetailerStore } from "@/lib/retailerStore";
 import { CATEGORIES } from "@/data/demo";
+import { useCategories } from "@/hooks/useCatalog";
+import { firebaseIsActive } from "@/lib/auth";
 import type { ProductImageSource } from "@/lib/productImage";
 import type { CategoryId } from "@/lib/types";
 import { ProductImagePicker } from "@/components/product/ProductImagePicker";
@@ -22,6 +24,8 @@ export const Route = createFileRoute("/retailer/products/new")({
 function AddProduct() {
   const navigate = useNavigate();
   const { addProduct } = useRetailerStore();
+  const categoriesQuery = useCategories();
+  const categories = firebaseIsActive() ? (categoriesQuery.data ?? []) : CATEGORIES;
   const [loading, setLoading] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -60,7 +64,7 @@ function AddProduct() {
     setLoading(true);
 
     try {
-      addProduct({
+      await addProduct({
         name: formData.name.trim(),
         description: formData.description.trim(),
         category: formData.category,
@@ -76,8 +80,8 @@ function AddProduct() {
         description: `"${formData.name.trim()}" has been listed in your catalogue.`,
       });
       navigate({ to: "/retailer/products" });
-    } catch {
-      toast.error("Failed to add product");
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Failed to add product");
     } finally {
       setLoading(false);
     }
@@ -143,12 +147,20 @@ function AddProduct() {
                 className="w-full rounded-xl border border-input bg-background/50 px-4 py-2.5 text-sm outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                 required
               >
-                {CATEGORIES.map((cat) => (
+                {categories.map((cat) => (
                   <option key={cat.id} value={cat.id} className="bg-background text-foreground">
                     {cat.name}
                   </option>
                 ))}
               </select>
+              {firebaseIsActive() && categoriesQuery.isPending ? (
+                <p className="mt-1 text-xs text-muted-foreground">Loading categories...</p>
+              ) : null}
+              {firebaseIsActive() && categoriesQuery.isError ? (
+                <p role="alert" className="mt-1 text-xs text-destructive">
+                  Could not load categories: {categoriesQuery.error.message}
+                </p>
+              ) : null}
             </div>
 
             <div>

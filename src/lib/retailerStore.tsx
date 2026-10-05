@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Order, Product, Shop } from "./types";
 import { DEMO_CENTER, PRODUCTS, SHOPS } from "../data/demo";
 import { announceOrdersUpdated, ORDERS_STORAGE_KEY, ORDERS_UPDATED_EVENT } from "./orderSync";
+import { isBrowser, isFirebaseActive } from "./firebase";
+import { productRepository, shopRepository } from "./repositories";
+import { useRetailerAuth } from "./retailerAuth";
+import { catalogQueryKeys } from "@/hooks/useCatalog";
 
 export const DEMO_RETAILER_ID = "demo-retailer-1";
 export const DEMO_SHOP_ID = "shop-green-basket";
@@ -276,8 +281,35 @@ function hydrateStoreFromStorage() {
 
 export function useRetailerStore() {
   const [state, setState] = useState<StoreState>(storeState);
+  const auth = useRetailerAuth();
+  const queryClient = useQueryClient();
+  const firebaseEnabled = isFirebaseActive && isBrowser && auth.user !== null;
+  const firebaseShop = useQuery({
+    queryKey: ["shops", "owner", auth.user?.uid ?? ""],
+    queryFn: async () => {
+      const result = await shopRepository.getByOwner(auth.user!.uid);
+      if (!result.ok) throw new Error(result.message);
+      return result.data;
+    },
+    enabled: firebaseEnabled,
+    staleTime: 30_000,
+  });
+  const firebaseProducts = useQuery({
+    queryKey: firebaseShop.data
+      ? catalogQueryKeys.productsByShop(firebaseShop.data.id)
+      : ["products", "shop", "unresolved"],
+    queryFn: async () => {
+      if (!firebaseShop.data) return [];
+      const result = await productRepository.listByShop(firebaseShop.data.id);
+      if (!result.ok) throw new Error(result.message);
+      return result.data;
+    },
+    enabled: firebaseEnabled && !!firebaseShop.data,
+    staleTime: 30_000,
+  });
 
   useEffect(() => {
+    if (isFirebaseActive) return;
     const listener = (next: StoreState) => {
       setState(next);
     };
@@ -369,7 +401,29 @@ export function useRetailerStore() {
 
   // Add a new product to the shop
   const addProduct = useCallback(
-    (productData: Omit<Product, "id" | "shopId" | "createdAt" | "updatedAt">) => {
+    async (productData: Omit<Product, "id" | "shopId" | "createdAt" | "updatedAt">) => {
+      if (isFirebaseActive) {
+        const shop = firebaseShop.data;
+        if (!shop) throw new Error("No shop profile is associated with this retailer account.");
+        const created = await productRepository.save({
+          ...productData,
+          shopId: shop.id,
+          availability: productData.stock > 0 && productData.availability,
+        });
+        if (!created.ok) throw new Error(created.message);
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: catalogQueryKeys.productsByShop(shop.id) }),
+          queryClient.invalidateQueries({
+            queryKey: catalogQueryKeys.availableProductsByShop(shop.id),
+          }),
+          queryClient.invalidateQueries({ queryKey: catalogQueryKeys.products }),
+          queryClient.invalidateQueries({ queryKey: catalogQueryKeys.allProducts }),
+        ]);
+        const loaded = await productRepository.get(created.data);
+        if (!loaded.ok) throw new Error(loaded.message);
+        if (!loaded.data) throw new Error("The product was saved but could not be reloaded.");
+        return loaded.data;
+      }
       const now = new Date().toISOString();
       const newProduct: Product = {
         ...productData,
@@ -388,92 +442,149 @@ export function useRetailerStore() {
         console.error("Failed to save products:", e);
       }
       notifyStoreListeners();
+      return newProduct;
     },
-    [],
+    [firebaseShop.data, queryClient],
   );
 
   // Update product details
-  const updateProduct = useCallback((productId: string, updates: Partial<Product>) => {
-    const now = new Date().toISOString();
-    const nextProducts = storeState.products.map((p) => {
-      if (p.id !== productId) return p;
-      const updated = { ...p, ...updates, updatedAt: now };
-      if (updates.stock !== undefined) updated.stock = Math.max(0, updates.stock);
-      if (updated.stock === 0) updated.availability = false;
-      return updated;
-    });
+  const updateProduct = useCallback(
+    async (productId: string, updates: Partial<Product>) => {
+      if (isFirebaseActive) {
+        const result = await productRepository.update(productId, updates);
+        if (!result.ok) throw new Error(result.message);
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: catalogQueryKeys.products }),
+          queryClient.invalidateQueries({ queryKey: catalogQueryKeys.allProducts }),
+          queryClient.invalidateQueries({ queryKey: ["products", productId] }),
+          queryClient.invalidateQueries({ queryKey: ["products", "shop"] }),
+        ]);
+        return;
+      }
+      const now = new Date().toISOString();
+      const nextProducts = storeState.products.map((p) => {
+        if (p.id !== productId) return p;
+        const updated = { ...p, ...updates, updatedAt: now };
+        if (updates.stock !== undefined) updated.stock = Math.max(0, updates.stock);
+        if (updated.stock === 0) updated.availability = false;
+        return updated;
+      });
 
-    storeState = { ...storeState, products: nextProducts };
-    try {
-      localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(nextProducts));
-    } catch (e) {
-      console.error("Failed to save products:", e);
-    }
-    notifyStoreListeners();
-  }, []);
+      storeState = { ...storeState, products: nextProducts };
+      try {
+        localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(nextProducts));
+      } catch (e) {
+        console.error("Failed to save products:", e);
+      }
+      notifyStoreListeners();
+    },
+    [queryClient],
+  );
 
   // Delete a product
-  const deleteProduct = useCallback((productId: string) => {
-    const nextProducts = storeState.products.filter((p) => p.id !== productId);
-    storeState = { ...storeState, products: nextProducts };
-    try {
-      localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(nextProducts));
-    } catch (e) {
-      console.error("Failed to save products:", e);
-    }
-    notifyStoreListeners();
-  }, []);
+  const deleteProduct = useCallback(
+    async (productId: string) => {
+      if (isFirebaseActive) {
+        const result = await productRepository.remove(productId);
+        if (!result.ok) throw new Error(result.message);
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: catalogQueryKeys.products }),
+          queryClient.invalidateQueries({ queryKey: catalogQueryKeys.allProducts }),
+          queryClient.invalidateQueries({ queryKey: ["products", "shop"] }),
+        ]);
+        return;
+      }
+      const nextProducts = storeState.products.filter((p) => p.id !== productId);
+      storeState = { ...storeState, products: nextProducts };
+      try {
+        localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(nextProducts));
+      } catch (e) {
+        console.error("Failed to save products:", e);
+      }
+      notifyStoreListeners();
+    },
+    [queryClient],
+  );
 
   // Toggle availability shortcut
   const toggleAvailability = useCallback(
-    (productId: string, currentAvailability?: boolean) => {
-      const product = storeState.products.find((p) => p.id === productId);
+    async (productId: string, currentAvailability?: boolean) => {
+      const product = isFirebaseActive
+        ? firebaseProducts.data?.find((item) => item.id === productId)
+        : storeState.products.find((item) => item.id === productId);
       if (!product) return;
       const nextAvail =
         currentAvailability !== undefined ? !currentAvailability : !product.availability;
-      updateProduct(productId, { availability: nextAvail });
+      await updateProduct(productId, { availability: nextAvail });
     },
-    [updateProduct],
+    [firebaseProducts.data, updateProduct],
   );
 
   // Update stock shortcut
   const updateStock = useCallback(
-    (productId: string, newStock: number) => {
-      updateProduct(productId, { stock: Math.max(0, newStock) });
+    async (productId: string, newStock: number) => {
+      await updateProduct(productId, {
+        stock: Math.max(0, newStock),
+        ...(newStock <= 0 ? { availability: false } : {}),
+      });
     },
     [updateProduct],
   );
 
   // Update shop details
-  const updateShop = useCallback((updates: Partial<Shop>) => {
-    const now = new Date().toISOString();
-    const updatedShop: Shop = {
-      ...storeState.shop,
-      ...updates,
-      updatedAt: now,
-    };
-    storeState = { ...storeState, shop: updatedShop };
-    try {
-      localStorage.setItem(SHOP_STORAGE_KEY, JSON.stringify(updatedShop));
-    } catch (e) {
-      console.error("Failed to save shop:", e);
-    }
-    notifyStoreListeners();
-  }, []);
+  const updateShop = useCallback(
+    async (updates: Partial<Shop>) => {
+      if (isFirebaseActive) {
+        const shop = firebaseShop.data;
+        if (!shop) throw new Error("No shop profile is associated with this retailer account.");
+        const result = await shopRepository.update(shop.id, updates);
+        if (!result.ok) throw new Error(result.message);
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: catalogQueryKeys.shop(shop.id) }),
+          queryClient.invalidateQueries({ queryKey: ["shops", "owner", shop.ownerId] }),
+          queryClient.invalidateQueries({ queryKey: catalogQueryKeys.activeShops }),
+          queryClient.invalidateQueries({ queryKey: catalogQueryKeys.allShops }),
+          queryClient.invalidateQueries({ queryKey: catalogQueryKeys.products }),
+        ]);
+        return;
+      }
+      const now = new Date().toISOString();
+      const updatedShop: Shop = {
+        ...storeState.shop,
+        ...updates,
+        updatedAt: now,
+      };
+      storeState = { ...storeState, shop: updatedShop };
+      try {
+        localStorage.setItem(SHOP_STORAGE_KEY, JSON.stringify(updatedShop));
+      } catch (e) {
+        console.error("Failed to save shop:", e);
+      }
+      notifyStoreListeners();
+    },
+    [firebaseShop.data, queryClient],
+  );
 
   const openShop = useCallback(() => {
-    updateShop({ status: "ACTIVE" });
+    return updateShop({ status: "ACTIVE" });
   }, [updateShop]);
 
   const closeShop = useCallback(() => {
-    updateShop({ status: "INACTIVE" });
+    return updateShop({ status: "INACTIVE" });
   }, [updateShop]);
 
   return {
-    shop: state.shop,
-    products: state.products,
+    shop: isFirebaseActive ? (firebaseShop.data ?? null) : state.shop,
+    products: isFirebaseActive ? (firebaseProducts.data ?? []) : state.products,
     orders: shopOrders,
-    loading: state.loading,
+    loading: isFirebaseActive
+      ? !auth.user ||
+        firebaseShop.isPending ||
+        (firebaseShop.data !== null && firebaseProducts.isPending)
+      : state.loading,
+    error: isFirebaseActive
+      ? (firebaseShop.error?.message ?? firebaseProducts.error?.message ?? null)
+      : null,
     updateOrderStatus,
     addProduct,
     updateProduct,

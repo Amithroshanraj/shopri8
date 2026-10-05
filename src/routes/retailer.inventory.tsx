@@ -73,32 +73,44 @@ function RetailerInventory() {
     return true;
   });
 
-  const handleStockChange = (productId: string, delta: number) => {
+  const handleStockChange = async (productId: string, delta: number) => {
     const product = products.find((p) => p.id === productId);
     if (!product) return;
     const currentStock = stockInputs[productId] ?? product.stock;
     const newStock = Math.max(0, currentStock + delta);
     setStockInputs((prev) => ({ ...prev, [productId]: newStock }));
-    updateStock(productId, newStock);
-    toast.success(`Stock updated for ${product.name}`, {
-      description: `New stock level: ${newStock} ${product.unit || "units"}`,
-    });
+    try {
+      await updateStock(productId, newStock);
+      toast.success(`Stock updated for ${product.name}`, {
+        description: `New stock level: ${newStock} ${product.unit || "units"}`,
+      });
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Could not update stock.");
+    }
   };
 
-  const handleDirectStockSubmit = (product: Product, value: number) => {
+  const handleDirectStockSubmit = async (product: Product, value: number) => {
     const sanitized = Math.max(0, isNaN(value) ? 0 : value);
     setStockInputs((prev) => ({ ...prev, [product.id]: sanitized }));
-    updateStock(product.id, sanitized);
-    toast.success(`Stock updated for ${product.name}`, {
-      description: `New stock level: ${sanitized} ${product.unit || "units"}`,
-    });
+    try {
+      await updateStock(product.id, sanitized);
+      toast.success(`Stock updated for ${product.name}`, {
+        description: `New stock level: ${sanitized} ${product.unit || "units"}`,
+      });
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Could not update stock.");
+    }
   };
 
-  const handleToggleAvailability = (product: Product) => {
-    toggleAvailability(product.id, product.availability);
-    toast.success(!product.availability ? "Marked Available" : "Marked Unavailable", {
-      description: `${product.name} is now ${!product.availability ? "active" : "hidden"}.`,
-    });
+  const handleToggleAvailability = async (product: Product) => {
+    try {
+      await toggleAvailability(product.id, product.availability);
+      toast.success(!product.availability ? "Marked Available" : "Marked Unavailable", {
+        description: `${product.name} is now ${!product.availability ? "active" : "hidden"}.`,
+      });
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Could not update availability.");
+    }
   };
 
   return (

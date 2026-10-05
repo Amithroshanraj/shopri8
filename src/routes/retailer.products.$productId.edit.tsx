@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useRetailerStore } from "@/lib/retailerStore";
 import { CATEGORIES } from "@/data/demo";
+import { useCategories } from "@/hooks/useCatalog";
+import { firebaseIsActive } from "@/lib/auth";
 import type { ProductImageSource } from "@/lib/productImage";
 import type { CategoryId } from "@/lib/types";
 import { ProductImagePicker } from "@/components/product/ProductImagePicker";
@@ -23,6 +25,8 @@ function EditProduct() {
   const navigate = useNavigate();
   const { productId } = Route.useParams();
   const { products, updateProduct, deleteProduct, loading: storeLoading } = useRetailerStore();
+  const categoriesQuery = useCategories();
+  const categories = firebaseIsActive() ? (categoriesQuery.data ?? []) : CATEGORIES;
   const [loading, setLoading] = useState(false);
 
   const product = products.find((p) => p.id === productId);
@@ -111,7 +115,7 @@ function EditProduct() {
     setLoading(true);
 
     try {
-      updateProduct(product.id, {
+      await updateProduct(product.id, {
         name: formData.name.trim(),
         description: formData.description.trim(),
         category: formData.category,
@@ -127,18 +131,22 @@ function EditProduct() {
         description: `Changes to "${formData.name.trim()}" have been saved.`,
       });
       navigate({ to: "/retailer/products" });
-    } catch {
-      toast.error("Failed to update product");
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Failed to update product");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (confirm(`Are you sure you want to delete "${product.name}"?`)) {
-      deleteProduct(product.id);
-      toast.success("Product Deleted");
-      navigate({ to: "/retailer/products" });
+      try {
+        await deleteProduct(product.id);
+        toast.success("Product Deleted");
+        navigate({ to: "/retailer/products" });
+      } catch (cause) {
+        toast.error(cause instanceof Error ? cause.message : "Could not delete product.");
+      }
     }
   };
 
@@ -210,12 +218,20 @@ function EditProduct() {
                 className="w-full rounded-xl border border-input bg-background/50 px-4 py-2.5 text-sm outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                 required
               >
-                {CATEGORIES.map((cat) => (
+                {categories.map((cat) => (
                   <option key={cat.id} value={cat.id} className="bg-background text-foreground">
                     {cat.name}
                   </option>
                 ))}
               </select>
+              {firebaseIsActive() && categoriesQuery.isPending ? (
+                <p className="mt-1 text-xs text-muted-foreground">Loading categories...</p>
+              ) : null}
+              {firebaseIsActive() && categoriesQuery.isError ? (
+                <p role="alert" className="mt-1 text-xs text-destructive">
+                  Could not load categories: {categoriesQuery.error.message}
+                </p>
+              ) : null}
             </div>
 
             <div>

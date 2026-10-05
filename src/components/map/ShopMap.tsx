@@ -51,25 +51,27 @@ export default function ShopMap({
           <Popup>Your location</Popup>
         </CircleMarker>
       )}
-      {shops.map((s) => (
-        <CircleMarker
-          key={s.id}
-          center={[s.latitude, s.longitude]}
-          radius={10}
-          pathOptions={{ color: "#7C3AED", fillColor: "#8B5CF6", fillOpacity: 0.8 }}
-          eventHandlers={{
-            click: () => onShopSelect(s.id),
-          }}
-        >
-          <Popup>
-            <strong>{s.name}</strong>
-            <br />
-            <Link to="/shops/$shopId" params={{ shopId: s.id }}>
-              View shop
-            </Link>
-          </Popup>
-        </CircleMarker>
-      ))}
+      {shops.map((s) =>
+        s.latitude === undefined || s.longitude === undefined ? null : (
+          <CircleMarker
+            key={s.id}
+            center={[s.latitude, s.longitude]}
+            radius={10}
+            pathOptions={{ color: "#7C3AED", fillColor: "#8B5CF6", fillOpacity: 0.8 }}
+            eventHandlers={{
+              click: () => onShopSelect(s.id),
+            }}
+          >
+            <Popup>
+              <strong>{s.name}</strong>
+              <br />
+              <Link to="/shops/$shopId" params={{ shopId: s.id }}>
+                View shop
+              </Link>
+            </Popup>
+          </CircleMarker>
+        ),
+      )}
     </MapContainer>
   );
 }

@@ -52,22 +52,33 @@ function RetailerProducts() {
     return true;
   });
 
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
     if (!productToDelete) return;
-    deleteProduct(productToDelete.id);
-    toast.success("Product deleted", {
-      description: `"${productToDelete.name}" has been removed from catalogue.`,
-    });
-    setProductToDelete(null);
+    try {
+      await deleteProduct(productToDelete.id);
+      toast.success("Product deleted", {
+        description: `"${productToDelete.name}" has been removed from catalogue.`,
+      });
+      setProductToDelete(null);
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Could not delete product.");
+    }
   };
 
-  const handleToggle = (product: Product) => {
-    toggleAvailability(product.id, product.availability);
-    toast.success(!product.availability ? "Product made Available" : "Product marked Unavailable", {
-      description: !product.availability
-        ? `Customers can now order ${product.name}.`
-        : `${product.name} is hidden from customer catalogue.`,
-    });
+  const handleToggle = async (product: Product) => {
+    try {
+      await toggleAvailability(product.id, product.availability);
+      toast.success(
+        !product.availability ? "Product made Available" : "Product marked Unavailable",
+        {
+          description: !product.availability
+            ? `Customers can now order ${product.name}.`
+            : `${product.name} is hidden from customer catalogue.`,
+        },
+      );
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Could not update availability.");
+    }
   };
 
   return (

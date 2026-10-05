@@ -162,7 +162,10 @@ export const DEMO_DELIVERY_TASKS: DeliveryTask[] = demoDeliveryInputs.map((input
   orderId: input.id,
   shopId: SHOP.id,
   ...(input.assigned ? { deliveryWorkerId: DEMO_WORKER_ID } : {}),
-  pickupLocation: { latitude: SHOP.latitude, longitude: SHOP.longitude },
+  pickupLocation: {
+    latitude: SHOP.latitude ?? DEMO_CENTER.latitude,
+    longitude: SHOP.longitude ?? DEMO_CENTER.longitude,
+  },
   deliveryLocation: {
     latitude: DEMO_CENTER.latitude + input.distance / 111,
     longitude: DEMO_CENTER.longitude + input.distance / 111,

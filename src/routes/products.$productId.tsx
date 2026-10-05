@@ -1,32 +1,13 @@
-import { createFileRoute, Link, notFound } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { Store } from "lucide-react";
 import { AppShell, PageHeader } from "@/components/layout/AppShell";
 import { MediaTile } from "@/components/common/MediaTile";
 import { QtyStepper } from "@/components/shop/Cards";
-import { PRODUCT_BY_ID, SHOP_BY_ID } from "@/data/demo";
 import { formatPrice } from "@/lib/geo";
+import { useProduct, useShop } from "@/hooks/useCatalog";
 
 export const Route = createFileRoute("/products/$productId")({
-  loader: ({ params }) => {
-    const product = PRODUCT_BY_ID[params.productId];
-    if (!product) throw notFound();
-    return { product, shop: SHOP_BY_ID[product.shopId]! };
-  },
-  head: ({ loaderData }) => {
-    if (!loaderData)
-      return {
-        meta: [{ title: "Product not found — SHOPRi8" }, { name: "robots", content: "noindex" }],
-      };
-    const t = `${loaderData.product.name} — ${loaderData.shop.name}`;
-    return {
-      meta: [
-        { title: t },
-        { name: "description", content: loaderData.product.description },
-        { property: "og:title", content: t },
-        { property: "og:description", content: loaderData.product.description },
-      ],
-    };
-  },
+  head: () => ({ meta: [{ title: "Product — SHOPRi8" }] }),
   notFoundComponent: () => (
     <AppShell>
       <PageHeader title="Product not found" />
@@ -36,7 +17,30 @@ export const Route = createFileRoute("/products/$productId")({
 });
 
 function ProductPage() {
-  const { product, shop } = Route.useLoaderData();
+  const { productId } = Route.useParams();
+  const productQuery = useProduct(productId);
+  const product = productQuery.data;
+  const shopQuery = useShop(product?.shopId);
+  const shop = shopQuery.data;
+  if (productQuery.isPending || shopQuery.isPending) {
+    return (
+      <AppShell>
+        <p className="text-sm text-muted-foreground">Loading product...</p>
+      </AppShell>
+    );
+  }
+  if (productQuery.isError || shopQuery.isError || !product || !shop || shop.status !== "ACTIVE") {
+    return (
+      <AppShell>
+        <PageHeader title="Product not found" />
+        {productQuery.isError || shopQuery.isError ? (
+          <p role="alert" className="text-sm text-destructive">
+            {productQuery.error?.message ?? shopQuery.error?.message}
+          </p>
+        ) : null}
+      </AppShell>
+    );
+  }
   return (
     <AppShell>
       <PageHeader title={product.name} />
@@ -61,7 +65,7 @@ function ProductPage() {
           <span className="text-xs text-muted-foreground">
             {product.stock > 0 ? `${product.stock} in stock` : "Currently unavailable"}
           </span>
-          <QtyStepper product={product} />
+          <QtyStepper product={product} shopName={shop.name} />
         </div>
       </div>
       <Link

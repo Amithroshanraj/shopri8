@@ -100,6 +100,75 @@ function mapDoc<T>(snapshot: { id: string; data: () => DocumentData }): T {
   return { id: snapshot.id, ...snapshot.data() } as T;
 }
 
+function timestampToIso(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (
+    value &&
+    typeof value === "object" &&
+    "toDate" in value &&
+    typeof value.toDate === "function"
+  ) {
+    return value.toDate().toISOString();
+  }
+  return undefined;
+}
+
+function mapShopDoc(snapshot: { id: string; data: () => DocumentData }): Shop {
+  const data = snapshot.data();
+  return {
+    ...data,
+    id: snapshot.id,
+    category: (data["category"] ?? data["categoryId"]) as Shop["category"],
+    ...(typeof data["latitude"] === "number" ? { latitude: data["latitude"] } : {}),
+    ...(typeof data["longitude"] === "number" ? { longitude: data["longitude"] } : {}),
+    ...(typeof data["lat"] === "number" ? { latitude: data["lat"] } : {}),
+    ...(typeof data["lng"] === "number" ? { longitude: data["lng"] } : {}),
+    ...(timestampToIso(data["createdAt"]) ? { createdAt: timestampToIso(data["createdAt"]) } : {}),
+    ...(timestampToIso(data["updatedAt"]) ? { updatedAt: timestampToIso(data["updatedAt"]) } : {}),
+  } as Shop;
+}
+
+function mapProductDoc(snapshot: { id: string; data: () => DocumentData }): Product {
+  const data = snapshot.data();
+  const stock =
+    typeof data["stock"] === "number" && Number.isInteger(data["stock"]) && data["stock"] >= 0
+      ? data["stock"]
+      : 0;
+  const availability = data["availability"] ?? data["isAvailable"];
+  return {
+    ...data,
+    id: snapshot.id,
+    shopId: typeof data["shopId"] === "string" ? data["shopId"] : "",
+    name: typeof data["name"] === "string" ? data["name"] : "Unnamed product",
+    description: typeof data["description"] === "string" ? data["description"] : "",
+    category:
+      typeof data["category"] === "string"
+        ? (data["category"] as Product["category"])
+        : typeof data["categoryId"] === "string"
+          ? (data["categoryId"] as Product["category"])
+          : "other",
+    price:
+      typeof data["price"] === "number" && Number.isFinite(data["price"]) && data["price"] >= 0
+        ? data["price"]
+        : 0,
+    stock,
+    availability: availability === true && stock > 0,
+    ...(timestampToIso(data["createdAt"]) ? { createdAt: timestampToIso(data["createdAt"]) } : {}),
+    ...(timestampToIso(data["updatedAt"]) ? { updatedAt: timestampToIso(data["updatedAt"]) } : {}),
+  } as Product;
+}
+
+function validateProduct(product: Pick<Product, "name" | "category" | "price" | "stock">): void {
+  if (!product.name.trim()) throw new Error("Product name is required.");
+  if (!product.category.trim()) throw new Error("A product category is required.");
+  if (!Number.isFinite(product.price) || product.price < 0) {
+    throw new Error("Product price must be a non-negative number.");
+  }
+  if (!Number.isInteger(product.stock) || product.stock < 0) {
+    throw new Error("Product stock must be a non-negative whole number.");
+  }
+}
+
 /**
  * Resolves a reference path without importing Firestore reference objects into
  * the UI layer. Callers pass plain path strings.
@@ -352,12 +421,25 @@ export function shopDoc(shopId: string) {
  */
 export async function fetchShops(): Promise<Shop[]> {
   const snapshot = await getDocs(query(shopsCollection(), where("status", "==", "ACTIVE")));
-  return snapshot.docs.map((entry) => mapDoc<Shop>(entry));
+  return snapshot.docs.map(mapShopDoc);
+}
+
+/** Admin-only complete shop list, including inactive and suspended shops. */
+export async function fetchAllShops(): Promise<Shop[]> {
+  const snapshot = await getDocs(shopsCollection());
+  return snapshot.docs.map(mapShopDoc);
+}
+
+export async function fetchShopsByCategory(category: Shop["category"]): Promise<Shop[]> {
+  const snapshot = await getDocs(
+    query(shopsCollection(), where("status", "==", "ACTIVE"), where("category", "==", category)),
+  );
+  return snapshot.docs.map(mapShopDoc);
 }
 
 export async function fetchShop(shopId: string): Promise<Shop | null> {
   const snapshot = await getDoc(shopDoc(shopId));
-  return snapshot.exists() ? mapDoc<Shop>(snapshot) : null;
+  return snapshot.exists() ? mapShopDoc(snapshot) : null;
 }
 
 /** The shop owned by a retailer. Backs the retailer portal's shop settings. */
@@ -366,24 +448,39 @@ export async function fetchShopByOwner(ownerId: string): Promise<Shop | null> {
     query(shopsCollection(), where("ownerId", "==", ownerId), limit(1)),
   );
   const first = snapshot.docs[0];
-  return first ? mapDoc<Shop>(first) : null;
+  return first ? mapShopDoc(first) : null;
 }
 
 export async function saveShop(shop: Omit<Shop, "id"> & { id?: string }): Promise<string> {
-  const body = stripUndefined({ ...shop, updatedAt: serverTimestamp() });
+  const {
+    id: _id,
+    ownerId: _ownerId,
+    createdAt: _createdAt,
+    updatedAt: _updatedAt,
+    ...fields
+  } = shop;
+  const body = stripUndefined({ ...fields, updatedAt: serverTimestamp() });
   if (shop.id) {
-    await setDoc(shopDoc(shop.id), body, { merge: true });
+    await updateShop(shop.id, fields);
     return shop.id;
   }
   const created = await addDoc(shopsCollection(), {
     ...body,
+    ownerId: shop.ownerId,
     createdAt: serverTimestamp(),
   });
   return created.id;
 }
 
 export async function updateShop(shopId: string, patch: Partial<Shop>): Promise<void> {
-  await updateDoc(shopDoc(shopId), stripUndefined({ ...patch, updatedAt: serverTimestamp() }));
+  const {
+    id: _id,
+    ownerId: _ownerId,
+    createdAt: _createdAt,
+    updatedAt: _updatedAt,
+    ...fields
+  } = patch;
+  await updateDoc(shopDoc(shopId), stripUndefined({ ...fields, updatedAt: serverTimestamp() }));
 }
 
 // ---------------------------------------------------------------------------
@@ -396,7 +493,12 @@ export function categoriesCollection() {
 
 export async function fetchCategories(): Promise<Category[]> {
   const snapshot = await getDocs(query(categoriesCollection(), where("status", "==", "ACTIVE")));
-  return snapshot.docs.map((entry) => mapDoc<Category>(entry));
+  return snapshot.docs.map((entry) => ({ ...entry.data(), id: entry.id }) as Category);
+}
+
+export async function fetchCategory(categoryId: string): Promise<Category | null> {
+  const snapshot = await getDoc(doc(requireDb(), COLLECTIONS.categories, categoryId));
+  return snapshot.exists() ? ({ ...snapshot.data(), id: snapshot.id } as Category) : null;
 }
 
 export async function saveCategory(
@@ -426,18 +528,42 @@ export function productDoc(productId: string) {
 
 export async function fetchProductsByShop(shopId: string): Promise<Product[]> {
   const snapshot = await getDocs(query(productsCollection(), where("shopId", "==", shopId)));
-  return snapshot.docs.map((entry) => mapDoc<Product>(entry));
+  return snapshot.docs.map(mapProductDoc);
+}
+
+export async function fetchAvailableProductsByShop(shopId: string): Promise<Product[]> {
+  const snapshot = await getDocs(
+    query(
+      productsCollection(),
+      where("shopId", "==", shopId),
+      where("availability", "==", true),
+      where("stock", ">", 0),
+    ),
+  );
+  return snapshot.docs.map(mapProductDoc);
+}
+
+export async function fetchAllProducts(): Promise<Product[]> {
+  const snapshot = await getDocs(productsCollection());
+  return snapshot.docs.map(mapProductDoc);
+}
+
+export async function fetchProductsByCategory(category: Product["category"]): Promise<Product[]> {
+  const snapshot = await getDocs(query(productsCollection(), where("category", "==", category)));
+  return snapshot.docs.map(mapProductDoc);
 }
 
 export async function fetchProduct(productId: string): Promise<Product | null> {
   const snapshot = await getDoc(productDoc(productId));
-  return snapshot.exists() ? mapDoc<Product>(snapshot) : null;
+  return snapshot.exists() ? mapProductDoc(snapshot) : null;
 }
 
 export async function saveProduct(product: Omit<Product, "id"> & { id?: string }): Promise<string> {
-  const body = stripUndefined({ ...product, updatedAt: serverTimestamp() });
+  validateProduct(product);
+  const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...fields } = product;
+  const body = stripUndefined({ ...fields, updatedAt: serverTimestamp() });
   if (product.id) {
-    await setDoc(productDoc(product.id), body, { merge: true });
+    await updateProduct(product.id, fields);
     return product.id;
   }
   const created = await addDoc(productsCollection(), { ...body, createdAt: serverTimestamp() });
@@ -445,9 +571,25 @@ export async function saveProduct(product: Omit<Product, "id"> & { id?: string }
 }
 
 export async function updateProduct(productId: string, patch: Partial<Product>): Promise<void> {
+  if (patch.name !== undefined && !patch.name.trim()) {
+    throw new Error("Product name is required.");
+  }
+  if (patch.price !== undefined && (!Number.isFinite(patch.price) || patch.price < 0)) {
+    throw new Error("Product price must be a non-negative number.");
+  }
+  if (patch.stock !== undefined && (!Number.isInteger(patch.stock) || patch.stock < 0)) {
+    throw new Error("Product stock must be a non-negative whole number.");
+  }
+  const {
+    id: _id,
+    shopId: _shopId,
+    createdAt: _createdAt,
+    updatedAt: _updatedAt,
+    ...fields
+  } = patch;
   await updateDoc(
     productDoc(productId),
-    stripUndefined({ ...patch, updatedAt: serverTimestamp() }),
+    stripUndefined({ ...fields, updatedAt: serverTimestamp() }),
   );
 }
 

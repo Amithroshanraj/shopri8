@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppShell } from "@/components/layout/AppShell";
-import { CATEGORIES, SHOPS } from "@/data/demo";
+import { useActiveShops, useCategories } from "@/hooks/useCatalog";
 
 export const Route = createFileRoute("/categories")({
   head: () => ({
@@ -18,12 +18,22 @@ export const Route = createFileRoute("/categories")({
 });
 
 function Categories() {
+  const { data: categories = [], isPending, isError, error } = useCategories();
+  const shopsQuery = useActiveShops();
+  const shops = shopsQuery.data ?? [];
   return (
     <AppShell>
       <h1 className="mb-5 font-display text-xl font-semibold">Categories</h1>
+      {isPending || shopsQuery.isPending ? (
+        <p className="mb-4 text-sm text-muted-foreground">Loading catalogue...</p>
+      ) : isError || shopsQuery.isError ? (
+        <p role="alert" className="mb-4 text-sm text-destructive">
+          {error?.message ?? shopsQuery.error?.message}
+        </p>
+      ) : null}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        {CATEGORIES.map((c) => {
-          const count = SHOPS.filter((s) => s.category === c.id).length;
+        {categories.map((c) => {
+          const count = shops.filter((s) => s.category === c.id).length;
           return (
             <Link
               key={c.id}

@@ -13,6 +13,8 @@
     "emulators": "firebase emulators:start",
     "emulators:exec": "firebase emulators:exec \"node scripts/verify-rules.mjs\"",
     "verify:rules": "node scripts/verify-rules.mjs",
+    "verify:storage": "firebase emulators:exec --config firebase.storage-test.json --project hyperlocal-commerce-c9abd --only auth,firestore,storage \"node scripts/verify-storage.mjs\"",
+    "test:images": "node --experimental-strip-types --test tests/product-image.test.mjs",
     "test:payments": "node --experimental-strip-types --test tests/demo-payment.test.mjs",
     "provision:user-capability": "node scripts/provision-user-capability.mjs",
     "firebase:deploy": "firebase deploy --only firestore:rules,firestore:indexes,storage"

@@ -1,12 +1,12 @@
 import { uploadedImageRef } from "./productImage";
 
 /**
- * Local storage for retailer-uploaded product images.
+ * Local storage for retailer-uploaded product images in demo mode.
  *
  * Files are downscaled and kept as blobs in IndexedDB so the demo never has to
  * pretend an upload went to a server. Products only hold a small
- * `shopri8-upload:<id>` reference, which is exactly the slot a Firebase Storage
- * URL will occupy later. Object URLs are cached per tab and revoked on replace.
+ * `shopri8-upload:<id>` reference. Object URLs are cached per tab and revoked
+ * when the local upload is replaced or removed.
  */
 
 const DB_NAME = "shopri8-product-images";

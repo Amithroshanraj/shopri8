@@ -4,6 +4,23 @@ AI-powered hyperlocal commerce platform connecting Customers, Local Retailers, D
 
 ---
 
+### Product image storage
+
+Demo mode keeps retailer-uploaded product images in browser IndexedDB and
+continues using the bundled SHOPRi8 catalogue. Firebase mode uploads JPG, PNG,
+or WebP files (maximum 5 MB) to
+`shops/{shopId}/products/{productId}/image-{generatedId}.{extension}`.
+Firestore stores the download URL and Storage path as product image metadata;
+image bytes are never written to Firestore. Uploads use the existing Firebase
+app and Storage bucket, and product ownership is checked by Storage Rules
+against the authenticated user's retailer capability, shop ownership, and
+product-to-shop relationship.
+
+Set `VITE_FIREBASE_STORAGE_BUCKET` to the Firebase web app's bucket. Validate
+Storage permissions locally with `npm run verify:storage`; this runs only the
+Auth, Firestore, and Storage emulators and does not deploy rules or modify
+production data.
+
 ## 🚀 Key Modules & Capabilities
 
 - **Customer App**: Browse nearby shops, discover local deals, search products, geolocated map view, multi-shop cart & instant checkout.

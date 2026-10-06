@@ -28,6 +28,9 @@ function EditProduct() {
   const categoriesQuery = useCategories();
   const categories = firebaseIsActive() ? (categoriesQuery.data ?? []) : CATEGORIES;
   const [loading, setLoading] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [removeLegacyImage, setRemoveLegacyImage] = useState(false);
 
   const product = products.find((p) => p.id === productId);
 
@@ -59,6 +62,8 @@ function EditProduct() {
       // Seed from the stored source. A product with only a legacy `image` keeps
       // rendering it through the legacy channel until a new image is chosen.
       setImageSource(product.imageSource ?? null);
+      setImageFile(null);
+      setRemoveLegacyImage(false);
     }
   }, [product]);
 
@@ -115,20 +120,27 @@ function EditProduct() {
     setLoading(true);
 
     try {
-      await updateProduct(product.id, {
-        name: formData.name.trim(),
-        description: formData.description.trim(),
-        category: formData.category,
-        price,
-        stock,
-        unit: formData.unit.trim() || undefined,
-        // Changing the image never touches id, stock, availability or shop.
-        imageSource: imageSource ?? undefined,
-        availability: formData.availability && stock > 0,
-      });
+      const result = await updateProduct(
+        product.id,
+        {
+          name: formData.name.trim(),
+          description: formData.description.trim(),
+          category: formData.category,
+          price,
+          stock,
+          unit: formData.unit.trim() || undefined,
+          // Changing the image never touches id, stock, availability or shop.
+          imageSource: imageSource ?? null,
+          image: removeLegacyImage ? null : undefined,
+          availability: formData.availability && stock > 0,
+        },
+        imageFile ?? undefined,
+        setUploadProgress,
+      );
 
       toast.success("Product Updated", {
-        description: `Changes to "${formData.name.trim()}" have been saved.`,
+        description:
+          result?.imageCleanupWarning ?? `Changes to "${formData.name.trim()}" have been saved.`,
       });
       navigate({ to: "/retailer/products" });
     } catch (cause) {
@@ -141,8 +153,10 @@ function EditProduct() {
   const handleDelete = async () => {
     if (confirm(`Are you sure you want to delete "${product.name}"?`)) {
       try {
-        await deleteProduct(product.id);
-        toast.success("Product Deleted");
+        const result = await deleteProduct(product.id);
+        toast.success("Product Deleted", {
+          description: result?.imageCleanupWarning,
+        });
         navigate({ to: "/retailer/products" });
       } catch (cause) {
         toast.error(cause instanceof Error ? cause.message : "Could not delete product.");
@@ -284,7 +298,19 @@ function EditProduct() {
             previewSrc={pickerPreviewSrc}
             category={formData.category}
             productName={formData.name || product.name}
-            onChange={setImageSource}
+            onChange={(source) => {
+              setImageSource(source);
+              setRemoveLegacyImage(false);
+            }}
+            selectedFile={imageFile}
+            onSelectedFileChange={(file) => {
+              setImageFile(file);
+              setUploadProgress(null);
+              if (file) setRemoveLegacyImage(false);
+            }}
+            onRemoveImage={() => setRemoveLegacyImage(true)}
+            uploadProgress={imageFile ? uploadProgress : undefined}
+            disabled={loading}
           />
 
           <div className="rounded-2xl border border-border/70 bg-card/60 p-4">

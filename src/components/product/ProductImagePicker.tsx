@@ -3,13 +3,14 @@ import { ImagePlus, Images, Search, Trash2, Upload } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CategoryIcon } from "@/components/common/CategoryIcon";
 import { CATALOG_IMAGE_BY_ID, searchCatalogImages } from "@/data/productImages";
+import { isFirebaseActive } from "@/lib/firebase";
 import {
-  ACCEPTED_IMAGE_TYPES,
-  IMAGE_ERROR_MESSAGE,
+  IMAGE_TYPE_ERROR_MESSAGE,
   IMAGE_INPUT_ACCEPT,
   type ProductImageSource,
+  validateImageFile,
 } from "@/lib/productImage";
-import { deleteUploadedImage, saveUploadedImage } from "@/lib/productImageBlob";
+import { saveUploadedImage } from "@/lib/productImageBlob";
 import type { CategoryId } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -55,27 +56,54 @@ export function ProductImagePicker({
   category,
   productName,
   onChange,
+  selectedFile,
+  onSelectedFileChange,
+  onRemoveImage,
+  uploadProgress,
+  disabled = false,
 }: {
-  imageSource?: ProductImageSource | undefined;
+  imageSource?: ProductImageSource | null | undefined;
   /** Already-resolved src (an upload may still be hydrating). */
   previewSrc?: string | undefined;
   category: CategoryId;
   productName: string;
   onChange: (next: ProductImageSource | null) => void;
+  selectedFile?: File | null | undefined;
+  onSelectedFileChange?: ((file: File | null) => void) | undefined;
+  onRemoveImage?: (() => void) | undefined;
+  uploadProgress?: number | null | undefined;
+  disabled?: boolean;
 }) {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [filePreview, setFilePreview] = useState<string | undefined>();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isUpload = imageSource?.type === "uploaded";
+  const firebaseMode = isFirebaseActive;
   const catalogEntry =
     imageSource?.type === "catalog" ? CATALOG_IMAGE_BY_ID[imageSource.ref] : undefined;
-  const displaySrc = previewSrc ?? (imageSource?.type === "catalog" ? imageSource.ref : undefined);
-  const displayName = isUpload ? "Your upload" : catalogEntry?.name;
+  const displaySrc =
+    filePreview ?? previewSrc ?? (imageSource?.type === "catalog" ? imageSource.ref : undefined);
+  const displayName = selectedFile
+    ? "New image selected"
+    : isUpload
+      ? "Your upload"
+      : catalogEntry?.name;
   const results = searchCatalogImages(query);
+
+  useEffect(() => {
+    if (!selectedFile) {
+      setFilePreview(undefined);
+      return;
+    }
+    const preview = URL.createObjectURL(selectedFile);
+    setFilePreview(preview);
+    return () => URL.revokeObjectURL(preview);
+  }, [selectedFile]);
 
   useEffect(() => {
     if (!libraryOpen) return;
@@ -85,18 +113,29 @@ export function ProductImagePicker({
   const handleFile = async (file: File | undefined) => {
     if (!file) return;
     setError(null);
-    if (!ACCEPTED_IMAGE_TYPES.includes(file.type as (typeof ACCEPTED_IMAGE_TYPES)[number])) {
-      setError(IMAGE_ERROR_MESSAGE);
+    const validation = validateImageFile(file);
+    if (!validation.ok) {
+      setError(validation.error);
+      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
+    if (firebaseMode) {
+      if (!onSelectedFileChange) {
+        setError("Image upload is not available on this form.");
+        return;
+      }
+      onSelectedFileChange(file);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
     setUploading(true);
     try {
       const ref = await saveUploadedImage(file);
-      const previous = imageSource?.type === "uploaded" ? imageSource.ref : undefined;
       onChange({ type: "uploaded", ref, name: file.name });
-      if (previous && previous !== ref) void deleteUploadedImage(previous);
+      onSelectedFileChange?.(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : IMAGE_ERROR_MESSAGE);
+      setError(cause instanceof Error ? cause.message : IMAGE_TYPE_ERROR_MESSAGE);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -104,18 +143,20 @@ export function ProductImagePicker({
   };
 
   const handleRemove = () => {
-    const previous = imageSource?.type === "uploaded" ? imageSource.ref : undefined;
+    if (selectedFile) {
+      onSelectedFileChange?.(null);
+      return;
+    }
     onChange(null);
-    if (previous) void deleteUploadedImage(previous);
+    onRemoveImage?.();
   };
 
   const confirmCatalogChoice = () => {
     if (!pendingId) return;
     const entry = CATALOG_IMAGE_BY_ID[pendingId];
     if (!entry) return;
-    const previous = imageSource?.type === "uploaded" ? imageSource.ref : undefined;
+    onSelectedFileChange?.(null);
     onChange({ type: "catalog", ref: entry.id, name: entry.name });
-    if (previous) void deleteUploadedImage(previous);
     setLibraryOpen(false);
   };
 
@@ -130,12 +171,12 @@ export function ProductImagePicker({
         alt={`${productName} image`}
       />
 
-      {imageSource ? (
+      {imageSource || selectedFile || previewSrc ? (
         <div className="mt-2.5 flex gap-2">
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
+            disabled={uploading || disabled}
             className="press flex-1 rounded-xl border border-border bg-card/60 py-2.5 text-xs font-semibold text-foreground transition-colors hover:bg-accent disabled:opacity-50"
           >
             {uploading ? "Processing..." : "Replace Image"}
@@ -143,7 +184,7 @@ export function ProductImagePicker({
           <button
             type="button"
             onClick={handleRemove}
-            disabled={uploading}
+            disabled={uploading || disabled}
             className="press flex items-center justify-center gap-1.5 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50"
           >
             <Trash2 className="h-3.5 w-3.5" /> Remove
@@ -155,6 +196,7 @@ export function ProductImagePicker({
         <button
           type="button"
           onClick={() => setLibraryOpen(true)}
+          disabled={disabled}
           className="press flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-md transition-colors hover:bg-primary/90"
         >
           <Images className="h-4 w-4" /> Choose from SHOPRi8 Library
@@ -162,7 +204,7 @@ export function ProductImagePicker({
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
+          disabled={uploading || disabled}
           className="press flex items-center justify-center gap-2 rounded-xl border border-border bg-card/60 px-4 py-2.5 text-xs font-semibold text-foreground transition-colors hover:bg-accent disabled:opacity-50"
         >
           <Upload className="h-4 w-4" />
@@ -174,6 +216,7 @@ export function ProductImagePicker({
         ref={fileInputRef}
         type="file"
         accept={IMAGE_INPUT_ACCEPT}
+        disabled={disabled || uploading}
         className="sr-only"
         aria-label="Upload product image from device"
         onChange={(event) => void handleFile(event.target.files?.[0])}
@@ -186,6 +229,13 @@ export function ProductImagePicker({
       {error ? (
         <p role="alert" className="mt-1.5 text-[0.7rem] font-medium text-destructive">
           {error}
+        </p>
+      ) : null}
+      {selectedFile && uploadProgress !== undefined ? (
+        <p className="mt-1.5 text-[0.7rem] text-muted-foreground" aria-live="polite">
+          {uploadProgress === null
+            ? "Image ready to upload."
+            : `Uploading image: ${uploadProgress}%`}
         </p>
       ) : null}
 

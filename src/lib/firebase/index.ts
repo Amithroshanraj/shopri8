@@ -122,8 +122,8 @@ export {
   deleteProductImage,
   productImagePath,
   productImageRef,
-  replaceProductImage,
   uploadProductImage,
+  type UploadedProductImage,
 } from "./storage";
 
 export {

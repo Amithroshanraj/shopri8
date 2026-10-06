@@ -27,6 +27,8 @@ function AddProduct() {
   const categoriesQuery = useCategories();
   const categories = firebaseIsActive() ? (categoriesQuery.data ?? []) : CATEGORIES;
   const [loading, setLoading] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -64,17 +66,21 @@ function AddProduct() {
     setLoading(true);
 
     try {
-      await addProduct({
-        name: formData.name.trim(),
-        description: formData.description.trim(),
-        category: formData.category,
-        price,
-        stock,
-        unit: formData.unit.trim() || undefined,
-        // A catalogue image is referenced by id; an upload carries its own ref.
-        imageSource: imageSource ?? undefined,
-        availability: formData.availability && stock > 0,
-      });
+      await addProduct(
+        {
+          name: formData.name.trim(),
+          description: formData.description.trim(),
+          category: formData.category,
+          price,
+          stock,
+          unit: formData.unit.trim() || undefined,
+          // A catalogue image is referenced by id; an upload carries its own ref.
+          imageSource: imageSource ?? undefined,
+          availability: formData.availability && stock > 0,
+        },
+        imageFile ?? undefined,
+        setUploadProgress,
+      );
 
       toast.success("Product Added", {
         description: `"${formData.name.trim()}" has been listed in your catalogue.`,
@@ -216,6 +222,13 @@ function AddProduct() {
             category={formData.category}
             productName={formData.name || "Product"}
             onChange={setImageSource}
+            selectedFile={imageFile}
+            onSelectedFileChange={(file) => {
+              setImageFile(file);
+              setUploadProgress(null);
+            }}
+            uploadProgress={imageFile ? uploadProgress : undefined}
+            disabled={loading}
           />
 
           <div className="rounded-2xl border border-border/70 bg-card/60 p-4">

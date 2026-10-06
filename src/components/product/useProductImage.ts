@@ -11,14 +11,12 @@ import {
 } from "@/lib/productImageBlob";
 
 /**
- * Resolves the displayable image for a product, hydrating retailer uploads from
- * local storage on demand. Products without an `imageSource` resolve
- * synchronously from the legacy `image` field, so nothing about existing
- * products changes.
+ * Resolves Firebase URLs directly and hydrates demo uploads from IndexedDB.
+ * Products without an `imageSource` still resolve from the legacy `image` field.
  */
 export function useProductImage(product: {
-  image?: string | undefined;
-  imageSource?: ProductImageSource | undefined;
+  image?: string | null | undefined;
+  imageSource?: ProductImageSource | null | undefined;
 }): ResolvedProductImage {
   const imageSource = product.imageSource;
   const uploadRef = imageSource?.type === "uploaded" ? imageSource.ref : undefined;
@@ -27,6 +25,10 @@ export function useProductImage(product: {
   useEffect(() => {
     if (!uploadRef) {
       setUploaded(undefined);
+      return;
+    }
+    if (/^https:\/\//i.test(uploadRef)) {
+      setUploaded(uploadRef);
       return;
     }
     let active = true;
@@ -58,7 +60,10 @@ export function usePickerPreviewSrc(
   imageSource: ProductImageSource | null | undefined,
   fallbackSrc?: string | undefined,
 ) {
-  const uploadRef = imageSource?.type === "uploaded" ? imageSource.ref : undefined;
+  const uploadRef =
+    imageSource?.type === "uploaded" && !/^https:\/\//i.test(imageSource.ref)
+      ? imageSource.ref
+      : undefined;
   const [uploaded, setUploaded] = useState<string | undefined>(() => uploadedImageSrc(uploadRef));
 
   useEffect(() => {
@@ -74,5 +79,8 @@ export function usePickerPreviewSrc(
   }, [uploadRef]);
 
   if (imageSource?.type === "catalog") return imageSource.ref;
+  if (imageSource?.type === "uploaded" && /^https:\/\//i.test(imageSource.ref)) {
+    return imageSource.ref;
+  }
   return uploaded ?? fallbackSrc;
 }

@@ -342,7 +342,27 @@ service cloud.firestore {
         && data.status in ['PENDING', 'APPROVED', 'REJECTED'];
     }
 
-    function validProduct(data) {
+    function validProductImage(data, productId) {
+      return !('imageSource' in data)
+        || data.imageSource == null
+        || (data.imageSource is map
+            && data.imageSource.keys().hasOnly(['type', 'ref', 'storagePath', 'name'])
+            && data.imageSource.type in ['catalog', 'uploaded']
+            && data.imageSource.ref is string
+            && data.imageSource.ref.size() > 0
+            && (!('name' in data.imageSource) || data.imageSource.name is string)
+            && (data.imageSource.type == 'catalog'
+                ? !('storagePath' in data.imageSource)
+                : ((!('storagePath' in data.imageSource)
+                    && data.imageSource.ref.matches('^shopri8-upload:[A-Za-z0-9_-]+$'))
+                  || (data.imageSource.storagePath is string
+                      && data.imageSource.storagePath.matches(
+                        '^shops/' + data.shopId + '/products/' + productId
+                        + '/image-[A-Za-z0-9_-]+[.](jpg|png|webp)$'
+                      )))));
+    }
+
+    function validProduct(data, productId) {
       return data.keys().hasOnly([
           'shopId', 'name', 'description', 'category', 'price', 'stock',
           'availability', 'image', 'imageSource', 'unit', 'createdAt', 'updatedAt'
@@ -364,12 +384,7 @@ service cloud.firestore {
         && (!('description' in data) || data.description is string)
         && (!('image' in data) || data.image is string)
         && (!('unit' in data) || data.unit is string)
-        && (!('imageSource' in data)
-            || (data.imageSource is map
-                && data.imageSource.keys().hasOnly(['type', 'ref', 'name'])
-                && data.imageSource.type in ['catalog', 'uploaded']
-                && data.imageSource.ref is string
-                && (!('name' in data.imageSource) || data.imageSource.name is string)));
+        && validProductImage(data, productId);
     }
 
     /**
@@ -567,14 +582,14 @@ service cloud.firestore {
                   || ownsShopOfProduct(resource.data)
                   || isAdmin();
 
-      allow create: if validProduct(request.resource.data)
+      allow create: if validProduct(request.resource.data, productId)
         && exists(/databases/$(database)/documents/shops/$(request.resource.data.shopId))
         && 'createdAt' in request.resource.data
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time
         && (isAdmin() || (isRetailer() && ownsShop(request.resource.data.shopId)));
 
-      allow update: if validProduct(request.resource.data)
+      allow update: if validProduct(request.resource.data, productId)
         && request.resource.data.shopId == resource.data.shopId
         && (!('createdAt' in resource.data)
             || request.resource.data.createdAt == resource.data.createdAt)

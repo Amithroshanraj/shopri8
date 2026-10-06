@@ -7,16 +7,17 @@ import type { CategoryId } from "./types";
  * by any number of retailers and products) or a RETAILER-SPECIFIC upload owned
  * by a single product. The two are never copied into each other.
  *
- * Uploaded refs are `shopri8-upload:<id>` local references today. Swapping them
- * for Firebase Storage URLs later only changes what `ref` holds — the picker UI,
- * the resolution order and every display site stay as they are.
+ * Uploaded refs are local `shopri8-upload:<id>` references in demo mode and
+ * Firebase download URLs plus `storagePath` in Firebase mode.
  */
 export type ProductImageType = "catalog" | "uploaded";
 
 export interface ProductImageSource {
   type: ProductImageType;
-  /** Catalogue asset reference, or a local upload reference. */
+  /** Catalogue asset reference, local upload reference, or Firebase download URL. */
   ref: string;
+  /** Firebase Storage path for retailer uploads; absent for catalogue/demo images. */
+  storagePath?: string | undefined;
   /** Catalogue item name, shown to the retailer. */
   name?: string | undefined;
 }
@@ -38,9 +39,11 @@ export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 
 /** Passed to the file input so mobile browsers offer gallery and camera. */
-export const IMAGE_INPUT_ACCEPT = "image/jpeg,image/png,image/webp,image/*";
+export const IMAGE_INPUT_ACCEPT = "image/jpeg,image/png,image/webp";
 
-export const IMAGE_ERROR_MESSAGE = "Please choose a JPG, PNG, or WebP image up to 5 MB.";
+export const IMAGE_TYPE_ERROR_MESSAGE = "Only JPG, PNG, and WebP images are allowed.";
+export const IMAGE_SIZE_ERROR_MESSAGE = "Image size must be 5 MB or less.";
+export const IMAGE_ERROR_MESSAGE = IMAGE_TYPE_ERROR_MESSAGE;
 
 export function uploadedImageRef(id: string) {
   return `${UPLOAD_REF_PREFIX}${id}`;
@@ -64,7 +67,7 @@ export function resolveProductImage(
 ): ResolvedProductImage {
   if (imageSource?.type === "uploaded") {
     return {
-      src: uploadedSrc,
+      src: /^https:\/\//i.test(imageSource.ref) ? imageSource.ref : uploadedSrc,
       origin: "retailer-upload",
       label: "Retailer Upload",
     };
@@ -86,10 +89,10 @@ export type ImageValidation = { ok: true } | { ok: false; error: string };
 
 export function validateImageFile(file: File): ImageValidation {
   if (!ACCEPTED_IMAGE_TYPES.includes(file.type as (typeof ACCEPTED_IMAGE_TYPES)[number])) {
-    return { ok: false, error: IMAGE_ERROR_MESSAGE };
+    return { ok: false, error: IMAGE_TYPE_ERROR_MESSAGE };
   }
   if (file.size > MAX_IMAGE_BYTES) {
-    return { ok: false, error: IMAGE_ERROR_MESSAGE };
+    return { ok: false, error: IMAGE_SIZE_ERROR_MESSAGE };
   }
   return { ok: true };
 }

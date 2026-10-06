@@ -179,6 +179,7 @@ export function getDb(): Firestore | null {
  * app and never pass through Storage.
  */
 export function getFirebaseStorage(): FirebaseStorage | null {
+  if (!firebaseClientConfig.storageBucket) return null;
   const app = getFirebaseApp();
   if (!app) return null;
   if (!cachedStorage) {

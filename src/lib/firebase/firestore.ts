@@ -906,9 +906,12 @@ export async function updateProduct(productId: string, patch: Partial<Product>):
     updatedAt: _updatedAt,
     ...fields
   } = patch;
+  const updateFields: Record<string, unknown> = { ...fields };
+  if (patch.image === null) updateFields["image"] = deleteField();
+  if (patch.imageSource === null) updateFields["imageSource"] = deleteField();
   await updateDoc(
     productDoc(productId),
-    stripUndefined({ ...fields, updatedAt: serverTimestamp() }),
+    stripUndefined({ ...updateFields, updatedAt: serverTimestamp() }),
   );
 }
 

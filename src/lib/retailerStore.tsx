@@ -3,10 +3,17 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Order, Product, Shop } from "./types";
 import { DEMO_CENTER, PRODUCTS, SHOPS } from "../data/demo";
 import { announceOrdersUpdated, ORDERS_STORAGE_KEY, ORDERS_UPDATED_EVENT } from "./orderSync";
-import { isBrowser, isFirebaseActive } from "./firebase";
+import {
+  deleteProductImage as deleteFirebaseProductImage,
+  isBrowser,
+  isFirebaseActive,
+  uploadProductImage,
+} from "./firebase";
 import { orderRepository, productRepository, shopRepository } from "./repositories";
 import { useRetailerAuth } from "./retailerAuth";
 import { catalogQueryKeys } from "@/hooks/useCatalog";
+import { deleteUploadedImage } from "./productImageBlob";
+import { UPLOAD_REF_PREFIX } from "./productImage";
 
 export const DEMO_RETAILER_ID = "demo-retailer-1";
 export const DEMO_SHOP_ID = "shop-green-basket";
@@ -447,16 +454,72 @@ export function useRetailerStore() {
 
   // Add a new product to the shop
   const addProduct = useCallback(
-    async (productData: Omit<Product, "id" | "shopId" | "createdAt" | "updatedAt">) => {
+    async (
+      productData: Omit<Product, "id" | "shopId" | "createdAt" | "updatedAt">,
+      imageFile?: File,
+      onImageUploadProgress?: (percent: number) => void,
+    ) => {
       if (isFirebaseActive) {
         const shop = firebaseShop.data;
         if (!shop) throw new Error("No shop profile is associated with this retailer account.");
         const created = await productRepository.save({
           ...productData,
+          ...(imageFile ? { imageSource: undefined } : {}),
           shopId: shop.id,
-          availability: productData.stock > 0 && productData.availability,
+          availability: !imageFile && productData.stock > 0 && productData.availability,
         });
         if (!created.ok) throw new Error(created.message);
+
+        if (imageFile) {
+          let uploaded: Awaited<ReturnType<typeof uploadProductImage>>;
+          try {
+            onImageUploadProgress?.(0);
+            uploaded = await uploadProductImage(
+              shop.id,
+              created.data,
+              imageFile,
+              onImageUploadProgress,
+            );
+          } catch (cause) {
+            const rollback = await productRepository.remove(created.data);
+            const rollbackMessage = rollback.ok
+              ? ""
+              : ` The incomplete product could not be removed: ${rollback.message}`;
+            throw new Error(
+              `${cause instanceof Error ? cause.message : "Image upload failed."}${rollbackMessage}`,
+            );
+          }
+
+          const imageUpdate = await productRepository.update(created.data, {
+            imageSource: {
+              type: "uploaded",
+              ref: uploaded.downloadUrl,
+              storagePath: uploaded.storagePath,
+              name: imageFile.name,
+            },
+            availability: productData.stock > 0 && productData.availability,
+          });
+          if (!imageUpdate.ok) {
+            const cleanupMessages: string[] = [];
+            try {
+              await deleteFirebaseProductImage(uploaded.storagePath);
+            } catch (cause) {
+              cleanupMessages.push(
+                `The new image could not be cleaned up: ${
+                  cause instanceof Error ? cause.message : "Storage cleanup failed."
+                }`,
+              );
+            }
+            const rollback = await productRepository.remove(created.data);
+            if (!rollback.ok) {
+              cleanupMessages.push(
+                `The incomplete product could not be removed: ${rollback.message}`,
+              );
+            }
+            throw new Error([imageUpdate.message, ...cleanupMessages].join(" "));
+          }
+        }
+
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: catalogQueryKeys.productsByShop(shop.id) }),
           queryClient.invalidateQueries({
@@ -495,19 +558,102 @@ export function useRetailerStore() {
 
   // Update product details
   const updateProduct = useCallback(
-    async (productId: string, updates: Partial<Product>) => {
+    async (
+      productId: string,
+      updates: Partial<Product>,
+      imageFile?: File,
+      onImageUploadProgress?: (percent: number) => void,
+    ): Promise<{ imageCleanupWarning?: string } | undefined> => {
       if (isFirebaseActive) {
-        const result = await productRepository.update(productId, updates);
-        if (!result.ok) throw new Error(result.message);
+        const shop = firebaseShop.data;
+        if (!shop) throw new Error("No shop profile is associated with this retailer account.");
+        let current = firebaseProducts.data?.find((product) => product.id === productId);
+        if (!current) {
+          const loaded = await productRepository.get(productId);
+          if (!loaded.ok) throw new Error(loaded.message);
+          current = loaded.data ?? undefined;
+        }
+        if (!current || current.shopId !== shop.id) {
+          throw new Error("That product does not belong to this retailer's shop.");
+        }
+
+        let uploaded: Awaited<ReturnType<typeof uploadProductImage>> | undefined;
+        if (imageFile) {
+          onImageUploadProgress?.(0);
+          uploaded = await uploadProductImage(shop.id, productId, imageFile, onImageUploadProgress);
+        }
+        const patch = {
+          ...updates,
+          ...(uploaded
+            ? {
+                imageSource: {
+                  type: "uploaded" as const,
+                  ref: uploaded.downloadUrl,
+                  storagePath: uploaded.storagePath,
+                  name: imageFile?.name,
+                },
+              }
+            : {}),
+        };
+        const result = await productRepository.update(productId, patch);
+        if (!result.ok) {
+          const cleanupMessages: string[] = [];
+          if (uploaded) {
+            try {
+              await deleteFirebaseProductImage(uploaded.storagePath);
+            } catch (cause) {
+              cleanupMessages.push(
+                `The new image could not be cleaned up: ${
+                  cause instanceof Error ? cause.message : "Storage cleanup failed."
+                }`,
+              );
+            }
+          }
+          throw new Error([result.message, ...cleanupMessages].join(" "));
+        }
+
+        const nextStoragePath =
+          uploaded?.storagePath ??
+          (patch.imageSource && patch.imageSource !== null
+            ? patch.imageSource.type === "uploaded"
+              ? patch.imageSource.storagePath
+              : undefined
+            : undefined);
+        let imageCleanupWarning: string | undefined;
+        const previousStoragePath = current.imageSource?.storagePath;
+        if (previousStoragePath && previousStoragePath !== nextStoragePath) {
+          try {
+            await deleteFirebaseProductImage(previousStoragePath);
+          } catch (cause) {
+            imageCleanupWarning =
+              "The product image was updated, but the previous Storage file could not be removed.";
+            console.error("Old product image cleanup failed.", cause);
+          }
+        }
+        const previousLocalRef =
+          current.imageSource?.type === "uploaded" &&
+          current.imageSource.ref.startsWith(UPLOAD_REF_PREFIX)
+            ? current.imageSource.ref
+            : undefined;
+        if (
+          previousLocalRef &&
+          previousLocalRef !==
+            (patch.imageSource && patch.imageSource.type === "uploaded"
+              ? patch.imageSource.ref
+              : undefined)
+        ) {
+          await deleteUploadedImage(previousLocalRef);
+        }
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: catalogQueryKeys.products }),
           queryClient.invalidateQueries({ queryKey: catalogQueryKeys.allProducts }),
           queryClient.invalidateQueries({ queryKey: ["products", productId] }),
           queryClient.invalidateQueries({ queryKey: ["products", "shop"] }),
         ]);
-        return;
+        return imageCleanupWarning ? { imageCleanupWarning } : undefined;
       }
       const now = new Date().toISOString();
+      const previousProduct = storeState.products.find((p) => p.id === productId);
       const nextProducts = storeState.products.map((p) => {
         if (p.id !== productId) return p;
         const updated = { ...p, ...updates, updatedAt: now };
@@ -523,23 +669,58 @@ export function useRetailerStore() {
         console.error("Failed to save products:", e);
       }
       notifyStoreListeners();
+      if (
+        previousProduct?.imageSource?.type === "uploaded" &&
+        previousProduct.imageSource.ref.startsWith(UPLOAD_REF_PREFIX) &&
+        previousProduct.imageSource.ref !== updates.imageSource?.ref
+      ) {
+        await deleteUploadedImage(previousProduct.imageSource.ref);
+      }
+      return undefined;
     },
-    [queryClient],
+    [firebaseShop.data, firebaseProducts.data, queryClient],
   );
 
   // Delete a product
   const deleteProduct = useCallback(
     async (productId: string) => {
       if (isFirebaseActive) {
+        const shop = firebaseShop.data;
+        if (!shop) throw new Error("No shop profile is associated with this retailer account.");
+        let product = firebaseProducts.data?.find((entry) => entry.id === productId);
+        if (!product) {
+          const loaded = await productRepository.get(productId);
+          if (!loaded.ok) throw new Error(loaded.message);
+          product = loaded.data ?? undefined;
+        }
+        if (!product || product.shopId !== shop.id) {
+          throw new Error("That product does not belong to this retailer's shop.");
+        }
         const result = await productRepository.remove(productId);
         if (!result.ok) throw new Error(result.message);
+        let imageCleanupWarning: string | undefined;
+        if (product.imageSource?.storagePath) {
+          try {
+            await deleteFirebaseProductImage(product.imageSource.storagePath);
+          } catch (cause) {
+            imageCleanupWarning =
+              "The product was deleted, but its Storage image could not be removed.";
+            console.error("Deleted product image cleanup failed.", cause);
+          }
+        } else if (
+          product.imageSource?.type === "uploaded" &&
+          product.imageSource.ref.startsWith(UPLOAD_REF_PREFIX)
+        ) {
+          await deleteUploadedImage(product.imageSource.ref);
+        }
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: catalogQueryKeys.products }),
           queryClient.invalidateQueries({ queryKey: catalogQueryKeys.allProducts }),
           queryClient.invalidateQueries({ queryKey: ["products", "shop"] }),
         ]);
-        return;
+        return imageCleanupWarning ? { imageCleanupWarning } : undefined;
       }
+      const removed = storeState.products.find((product) => product.id === productId);
       const nextProducts = storeState.products.filter((p) => p.id !== productId);
       storeState = { ...storeState, products: nextProducts };
       try {
@@ -548,8 +729,15 @@ export function useRetailerStore() {
         console.error("Failed to save products:", e);
       }
       notifyStoreListeners();
+      if (
+        removed?.imageSource?.type === "uploaded" &&
+        removed.imageSource.ref.startsWith(UPLOAD_REF_PREFIX)
+      ) {
+        await deleteUploadedImage(removed.imageSource.ref);
+      }
+      return undefined;
     },
-    [queryClient],
+    [firebaseShop.data, firebaseProducts.data, queryClient],
   );
 
   // Toggle availability shortcut

@@ -110,12 +110,12 @@ export interface Product {
   description: string;
   price: number;
   /** Legacy image field, still honoured for products saved before imageSource. */
-  image?: string | undefined;
+  image?: string | null | undefined;
   /**
    * Typed image ownership: a shared SHOPRi8 catalogue image or a retailer-specific
    * upload. Takes priority over `image` when present.
    */
-  imageSource?: ProductImageSource | undefined;
+  imageSource?: ProductImageSource | null | undefined;
   stock: number;
   availability: boolean;
   category: CategoryId;

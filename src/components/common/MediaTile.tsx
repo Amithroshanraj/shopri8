@@ -20,8 +20,8 @@ export function MediaTile({
   className,
   iconClassName,
 }: {
-  src?: string | undefined;
-  imageSource?: ProductImageSource | undefined;
+  src?: string | null | undefined;
+  imageSource?: ProductImageSource | null | undefined;
   alt: string;
   category: CategoryId;
   className?: string;

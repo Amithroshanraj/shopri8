@@ -1212,6 +1212,36 @@ async function main() {
   await expect("retailer", "update own product", "allow", () =>
     writeWithTimestamps(retailer.idToken, "products/prod-a", { price: 345 }, ["updatedAt"], true),
   );
+  await expect("retailer", "set own product Storage image metadata", "allow", () =>
+    writeWithTimestamps(
+      retailer.idToken,
+      "products/prod-a",
+      {
+        imageSource: {
+          type: "uploaded",
+          ref: "https://firebasestorage.googleapis.com/emulator-image",
+          storagePath: "shops/shop-a/products/prod-a/image-product-image.webp",
+        },
+      },
+      ["updatedAt"],
+      true,
+    ),
+  );
+  await expect("retailer", "cannot point own product at another shop's image path", "deny", () =>
+    writeWithTimestamps(
+      retailer.idToken,
+      "products/prod-a",
+      {
+        imageSource: {
+          type: "uploaded",
+          ref: "https://firebasestorage.googleapis.com/emulator-image",
+          storagePath: "shops/shop-b/products/prod-a/image-product-image.webp",
+        },
+      },
+      ["updatedAt"],
+      true,
+    ),
+  );
   await expect("retailer", "update another shop's product", "deny", () =>
     writeWithTimestamps(retailer.idToken, "products/prod-b", { price: 11 }, ["updatedAt"], true),
   );

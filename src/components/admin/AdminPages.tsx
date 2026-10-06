@@ -30,6 +30,7 @@ import { DELIVERY_FEE } from "@/lib/cart";
 import { isFirebaseActive } from "@/lib/firebase";
 import { formatPrice } from "@/lib/geo";
 import { paymentRepository } from "@/lib/repositories";
+import { MediaTile } from "@/components/common/MediaTile";
 import {
   ORDER_STATUS_FLOW,
   ORDER_STATUS_LABEL,
@@ -984,7 +985,19 @@ export function AdminProductsPage() {
   const columns: Column<Product>[] = [
     {
       label: "Product",
-      render: (product) => <span className="font-semibold">{product.name}</span>,
+      render: (product) => (
+        <div className="flex items-center gap-2">
+          <MediaTile
+            src={product.image ?? undefined}
+            imageSource={product.imageSource ?? undefined}
+            alt={product.name}
+            category={product.category}
+            className="h-10 w-10 shrink-0 rounded-lg"
+            iconClassName="h-4 w-4"
+          />
+          <span className="font-semibold">{product.name}</span>
+        </div>
+      ),
     },
     { label: "Shop", render: (product) => shopFor(data, product.shopId)?.name ?? product.shopId },
     { label: "Category", render: (product) => product.category.replaceAll("-", " ") },
@@ -1082,7 +1095,17 @@ export function AdminProductsPage() {
           <div className={`${panelClass} p-4`}>
             <div className="flex justify-between gap-2">
               <div>
-                <p className="font-semibold">{product.name}</p>
+                <div className="flex items-center gap-2">
+                  <MediaTile
+                    src={product.image ?? undefined}
+                    imageSource={product.imageSource ?? undefined}
+                    alt={product.name}
+                    category={product.category}
+                    className="h-12 w-12 shrink-0 rounded-lg"
+                    iconClassName="h-5 w-5"
+                  />
+                  <p className="font-semibold">{product.name}</p>
+                </div>
                 <p className="text-xs text-muted-foreground">
                   {shopFor(data, product.shopId)?.name ?? product.shopId}
                 </p>

@@ -9,12 +9,16 @@ import {
   subscribeToUploadedImages,
   uploadedImageSrc,
 } from "@/lib/productImageBlob";
+import { catalogImageSrc, defaultProductImageFor } from "@/data/productImages";
+import type { CategoryId } from "@/lib/types";
 
 /**
  * Resolves Firebase URLs directly and hydrates demo uploads from IndexedDB.
  * Products without an `imageSource` still resolve from the legacy `image` field.
  */
 export function useProductImage(product: {
+  name?: string | undefined;
+  category?: CategoryId | undefined;
   image?: string | null | undefined;
   imageSource?: ProductImageSource | null | undefined;
 }): ResolvedProductImage {
@@ -48,7 +52,15 @@ export function useProductImage(product: {
     };
   }, [uploadRef]);
 
-  return resolveProductImage(imageSource, uploaded, product.image);
+  const resolvedSource =
+    imageSource?.type === "catalog"
+      ? { ...imageSource, ref: catalogImageSrc(imageSource.ref) }
+      : imageSource;
+  const staticDefault =
+    product.name && product.category
+      ? defaultProductImageFor(product.name, product.category)?.ref
+      : undefined;
+  return resolveProductImage(resolvedSource, uploaded, product.image, staticDefault);
 }
 
 /**
@@ -59,6 +71,8 @@ export function useProductImage(product: {
 export function usePickerPreviewSrc(
   imageSource: ProductImageSource | null | undefined,
   fallbackSrc?: string | undefined,
+  productName?: string | undefined,
+  category?: CategoryId | undefined,
 ) {
   const uploadRef =
     imageSource?.type === "uploaded" && !/^https:\/\//i.test(imageSource.ref)
@@ -78,9 +92,14 @@ export function usePickerPreviewSrc(
     return unsubscribe;
   }, [uploadRef]);
 
-  if (imageSource?.type === "catalog") return imageSource.ref;
+  if (imageSource?.type === "catalog") return catalogImageSrc(imageSource.ref);
   if (imageSource?.type === "uploaded" && /^https:\/\//i.test(imageSource.ref)) {
     return imageSource.ref;
   }
-  return uploaded ?? fallbackSrc;
+  if (imageSource?.type === "uploaded") return uploaded ?? fallbackSrc;
+  if (productName && category) {
+    const defaultSrc = defaultProductImageFor(productName, category)?.ref;
+    if (defaultSrc) return defaultSrc;
+  }
+  return fallbackSrc;
 }

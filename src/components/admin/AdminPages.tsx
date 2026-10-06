@@ -991,6 +991,7 @@ export function AdminProductsPage() {
             src={product.image ?? undefined}
             imageSource={product.imageSource ?? undefined}
             alt={product.name}
+            name={product.name}
             category={product.category}
             className="h-10 w-10 shrink-0 rounded-lg"
             iconClassName="h-4 w-4"
@@ -1100,6 +1101,7 @@ export function AdminProductsPage() {
                     src={product.image ?? undefined}
                     imageSource={product.imageSource ?? undefined}
                     alt={product.name}
+                    name={product.name}
                     category={product.category}
                     className="h-12 w-12 shrink-0 rounded-lg"
                     iconClassName="h-5 w-5"

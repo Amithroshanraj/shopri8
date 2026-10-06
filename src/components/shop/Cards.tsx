@@ -39,6 +39,7 @@ export function ShopCard({ shop }: { shop: Shop }) {
       <MediaTile
         src={shop.image}
         alt={shop.name}
+        name={shop.name}
         category={shop.category}
         className="h-16 w-16 shrink-0"
       />
@@ -119,6 +120,7 @@ export function ProductRow({ product, shopName }: { product: Product; shopName?:
         src={product.image}
         imageSource={product.imageSource}
         alt={product.name}
+        name={product.name}
         category={product.category}
         className="h-14 w-14 shrink-0"
         iconClassName="h-6 w-6"

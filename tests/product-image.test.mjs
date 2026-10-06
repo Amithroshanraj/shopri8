@@ -4,6 +4,7 @@ import {
   IMAGE_SIZE_ERROR_MESSAGE,
   IMAGE_TYPE_ERROR_MESSAGE,
   MAX_IMAGE_BYTES,
+  defaultCatalogImageFor,
   resolveProductImage,
   validateImageFile,
 } from "../src/lib/productImage.ts";
@@ -51,4 +52,51 @@ test("prefers Firebase Storage URLs and preserves catalogue and legacy images", 
     "/assets/rice.webp",
   );
   assert.equal(resolveProductImage(undefined, undefined, "legacy.jpg").src, "legacy.jpg");
+});
+
+test("uses product-specific static defaults before category and legacy fallbacks", () => {
+  const catalog = [
+    {
+      id: "rice",
+      name: "Rice",
+      category: "grocery",
+      ref: "/assets/grocery.webp",
+      keywords: "rice basmati grain",
+    },
+    {
+      id: "oil",
+      name: "Cooking oil",
+      category: "grocery",
+      ref: "/assets/grocery.webp",
+      keywords: "oil cooking",
+    },
+    {
+      id: "fruits",
+      name: "Fruits",
+      category: "fruits-vegetables",
+      ref: "/assets/fruits.webp",
+      keywords: "fruit apple banana",
+    },
+  ];
+
+  assert.equal(defaultCatalogImageFor("Sona Masoori Rice", "grocery", catalog)?.id, "rice");
+  assert.equal(defaultCatalogImageFor("Unknown staple", "grocery", catalog)?.id, "rice");
+  assert.equal(
+    defaultCatalogImageFor("Unknown produce", "fruits-vegetables", catalog)?.id,
+    "fruits",
+  );
+  assert.equal(defaultCatalogImageFor("Unknown item", "other", catalog), undefined);
+  assert.equal(
+    resolveProductImage(undefined, undefined, "legacy.jpg", "/assets/grocery.webp").src,
+    "/assets/grocery.webp",
+  );
+  assert.equal(
+    resolveProductImage(
+      { type: "catalog", ref: "/assets/chosen.webp" },
+      undefined,
+      "legacy.jpg",
+      "/assets/grocery.webp",
+    ).src,
+    "/assets/chosen.webp",
+  );
 });

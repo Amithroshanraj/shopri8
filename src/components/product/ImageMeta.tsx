@@ -2,9 +2,7 @@ import { useProductImage } from "./useProductImage";
 import type { Product } from "@/lib/types";
 
 /**
- * Subtle image-ownership metadata for the retailer catalogue: whether the image
- * is a shared SHOPRi8 catalogue image or this retailer's own upload. Hidden when
- * the product has no image at all.
+ * Subtle source metadata for the retailer catalogue.
  */
 export function ImageMeta({ product }: { product: Product }) {
   const resolved = useProductImage(product);

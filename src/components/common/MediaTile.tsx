@@ -7,15 +7,14 @@ import { cn } from "@/lib/utils";
 /**
  * Image surface for shops and products.
  *
- * Resolves retailer uploads first, then the shared SHOPRi8 catalogue, then the
- * pre-existing `src` field, and finally falls back to a branded gradient tile —
- * so no image ever renders as a broken icon. Shops keep using `src` directly;
- * products may pass an `imageSource`.
+ * Resolves explicit catalogue/upload sources, static product/category defaults,
+ * legacy image fields, and finally a branded gradient tile.
  */
 export function MediaTile({
   src,
   imageSource,
   alt,
+  name,
   category,
   className,
   iconClassName,
@@ -23,11 +22,12 @@ export function MediaTile({
   src?: string | null | undefined;
   imageSource?: ProductImageSource | null | undefined;
   alt: string;
+  name?: string | undefined;
   category: CategoryId;
   className?: string;
   iconClassName?: string;
 }) {
-  const resolved = useProductImage({ image: src, imageSource });
+  const resolved = useProductImage({ image: src, imageSource, name, category });
 
   return (
     <div

@@ -7,6 +7,7 @@ import { CATEGORIES } from "@/data/demo";
 import { useCategories } from "@/hooks/useCatalog";
 import { firebaseIsActive } from "@/lib/auth";
 import type { ProductImageSource } from "@/lib/productImage";
+import { defaultProductImageFor, productImageSourceFor } from "@/data/productImages";
 import type { CategoryId } from "@/lib/types";
 import { ProductImagePicker } from "@/components/product/ProductImagePicker";
 import { usePickerPreviewSrc } from "@/components/product/useProductImage";
@@ -27,8 +28,6 @@ function AddProduct() {
   const categoriesQuery = useCategories();
   const categories = firebaseIsActive() ? (categoriesQuery.data ?? []) : CATEGORIES;
   const [loading, setLoading] = useState(false);
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -40,7 +39,12 @@ function AddProduct() {
     availability: true,
   });
   const [imageSource, setImageSource] = useState<ProductImageSource | null>(null);
-  const pickerPreviewSrc = usePickerPreviewSrc(imageSource);
+  const pickerPreviewSrc = usePickerPreviewSrc(
+    imageSource,
+    undefined,
+    formData.name || "Product",
+    formData.category,
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,24 +67,21 @@ function AddProduct() {
       return;
     }
 
+    const defaultImage = defaultProductImageFor(formData.name.trim(), formData.category);
     setLoading(true);
 
     try {
-      await addProduct(
-        {
-          name: formData.name.trim(),
-          description: formData.description.trim(),
-          category: formData.category,
-          price,
-          stock,
-          unit: formData.unit.trim() || undefined,
-          // A catalogue image is referenced by id; an upload carries its own ref.
-          imageSource: imageSource ?? undefined,
-          availability: formData.availability && stock > 0,
-        },
-        imageFile ?? undefined,
-        setUploadProgress,
-      );
+      await addProduct({
+        name: formData.name.trim(),
+        description: formData.description.trim(),
+        category: formData.category,
+        price,
+        stock,
+        unit: formData.unit.trim() || undefined,
+        imageSource:
+          imageSource ?? (defaultImage ? productImageSourceFor(defaultImage) : undefined),
+        availability: formData.availability && stock > 0,
+      });
 
       toast.success("Product Added", {
         description: `"${formData.name.trim()}" has been listed in your catalogue.`,
@@ -222,12 +223,6 @@ function AddProduct() {
             category={formData.category}
             productName={formData.name || "Product"}
             onChange={setImageSource}
-            selectedFile={imageFile}
-            onSelectedFileChange={(file) => {
-              setImageFile(file);
-              setUploadProgress(null);
-            }}
-            uploadProgress={imageFile ? uploadProgress : undefined}
             disabled={loading}
           />
 

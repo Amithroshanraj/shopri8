@@ -55,22 +55,18 @@ export function uploadedImageId(ref: string | undefined) {
 }
 
 /**
- * Resolves a product image in priority order: retailer upload, then catalogue,
- * then the pre-existing `image` field, then no image (renderers show the
- * SHOPRi8 placeholder). Products saved before this model keep working because
- * `image` is still honoured last.
+ * Resolves a product image in priority order: explicit catalogue/upload source,
+ * static product/category default, then the pre-existing `image` field.
  */
 export function resolveProductImage(
   imageSource: ProductImageSource | null | undefined,
   uploadedSrc: string | undefined,
   legacyImage: string | null | undefined,
+  staticDefault: string | undefined = undefined,
 ): ResolvedProductImage {
   if (imageSource?.type === "uploaded") {
-    return {
-      src: /^https:\/\//i.test(imageSource.ref) ? imageSource.ref : uploadedSrc,
-      origin: "retailer-upload",
-      label: "Retailer Upload",
-    };
+    const src = /^https:\/\//i.test(imageSource.ref) ? imageSource.ref : uploadedSrc;
+    if (src) return { src, origin: "retailer-upload", label: "Retailer Upload" };
   }
   if (imageSource?.type === "catalog" && imageSource.ref) {
     return {
@@ -78,6 +74,9 @@ export function resolveProductImage(
       origin: "catalog",
       label: "SHOPRi8 Catalogue",
     };
+  }
+  if (staticDefault) {
+    return { src: staticDefault, origin: "catalog", label: "SHOPRi8 Default" };
   }
   if (legacyImage) {
     return { src: legacyImage, origin: "legacy", label: "Legacy image" };
@@ -99,7 +98,42 @@ export function validateImageFile(file: File): ImageValidation {
 
 export function catalogImageFor(
   category: CategoryId,
-  catalog: readonly { id: string; ref: string }[],
+  catalog: readonly { id: string; ref: string; category: CategoryId }[],
 ) {
-  return catalog.find((entry) => entry.id === `cat-${category}`);
+  return (
+    catalog.find((entry) => entry.id === `cat-${category}`) ??
+    catalog.find((entry) => entry.category === category)
+  );
+}
+
+export function defaultCatalogImageFor<
+  T extends { id: string; ref: string; name: string; category: CategoryId; keywords?: string },
+>(productName: string, category: CategoryId, catalog: readonly T[]) {
+  const categoryEntries = catalog.filter((entry) => entry.category === category);
+  if (categoryEntries.length === 0) return undefined;
+
+  const normalize = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  const name = normalize(productName);
+  const productWords = new Set(name.split(/\s+/).filter((word) => word.length > 2));
+  let best: T | undefined;
+  let bestScore = 0;
+
+  for (const entry of categoryEntries) {
+    const entryName = normalize(entry.name);
+    let score = name === entryName ? 100 : name.includes(entryName) ? 50 : 0;
+    const keywords = normalize(`${entry.name} ${entry.keywords ?? ""}`)
+      .split(/\s+/)
+      .filter((word) => word.length > 2);
+    score += keywords.reduce((total, word) => total + Number(productWords.has(word)), 0);
+    if (score > bestScore) {
+      best = entry;
+      bestScore = score;
+    }
+  }
+
+  return bestScore > 0 ? best : categoryEntries[0];
 }

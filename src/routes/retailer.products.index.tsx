@@ -200,6 +200,7 @@ function RetailerProducts() {
                         src={product.image}
                         imageSource={product.imageSource}
                         alt={product.name}
+                        name={product.name}
                         category={product.category}
                         className="h-10 w-10 shrink-0"
                         iconClassName="h-5 w-5"

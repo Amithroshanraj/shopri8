@@ -11,6 +11,10 @@ import householdImage from "@/assets/categories/household.webp";
 import meatFishImage from "@/assets/categories/meat-fish.webp";
 import otherImage from "@/assets/categories/other.webp";
 import type { CategoryId } from "@/lib/types";
+import {
+  defaultCatalogImageFor as findDefaultCatalogImage,
+  type ProductImageSource,
+} from "@/lib/productImage";
 
 /**
  * The SHOPRi8 shared product-image catalogue.
@@ -195,6 +199,18 @@ export const PRODUCT_IMAGE_CATALOG: readonly CatalogImage[] = [
 export const CATALOG_IMAGE_BY_ID: Record<string, CatalogImage> = Object.fromEntries(
   PRODUCT_IMAGE_CATALOG.map((entry) => [entry.id, entry]),
 );
+
+export function defaultProductImageFor(name: string, category: CategoryId) {
+  return findDefaultCatalogImage(name, category, PRODUCT_IMAGE_CATALOG);
+}
+
+export function productImageSourceFor(entry: CatalogImage): ProductImageSource {
+  return { type: "catalog", ref: entry.id, name: entry.name };
+}
+
+export function catalogImageSrc(ref: string) {
+  return CATALOG_IMAGE_BY_ID[ref]?.ref ?? ref;
+}
 
 /** Catalogue entries grouped by the category they suit best. */
 export const CATALOG_CATEGORIES = Array.from(

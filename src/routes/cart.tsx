@@ -66,6 +66,7 @@ function CartPage() {
                 <div key={l.productId} className="flex items-center gap-3 rounded-2xl glass-1 p-3">
                   <MediaTile
                     alt={l.name}
+                    name={l.name}
                     category={product?.category ?? "other"}
                     className="h-14 w-14 shrink-0"
                     iconClassName="h-6 w-6"

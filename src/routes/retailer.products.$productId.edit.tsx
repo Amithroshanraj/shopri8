@@ -28,8 +28,6 @@ function EditProduct() {
   const categoriesQuery = useCategories();
   const categories = firebaseIsActive() ? (categoriesQuery.data ?? []) : CATEGORIES;
   const [loading, setLoading] = useState(false);
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [removeLegacyImage, setRemoveLegacyImage] = useState(false);
 
   const product = products.find((p) => p.id === productId);
@@ -45,7 +43,12 @@ function EditProduct() {
   });
   const [imageSource, setImageSource] = useState<ProductImageSource | null>(null);
   const currentImage = useProductImage(product ?? {});
-  const pickerPreviewSrc = usePickerPreviewSrc(imageSource, currentImage.src);
+  const pickerPreviewSrc = usePickerPreviewSrc(
+    imageSource,
+    currentImage.src,
+    formData.name || product?.name,
+    formData.category,
+  );
 
   // Sync form when product is found/loaded
   useEffect(() => {
@@ -62,7 +65,6 @@ function EditProduct() {
       // Seed from the stored source. A product with only a legacy `image` keeps
       // rendering it through the legacy channel until a new image is chosen.
       setImageSource(product.imageSource ?? null);
-      setImageFile(null);
       setRemoveLegacyImage(false);
     }
   }, [product]);
@@ -120,23 +122,18 @@ function EditProduct() {
     setLoading(true);
 
     try {
-      const result = await updateProduct(
-        product.id,
-        {
-          name: formData.name.trim(),
-          description: formData.description.trim(),
-          category: formData.category,
-          price,
-          stock,
-          unit: formData.unit.trim() || undefined,
-          // Changing the image never touches id, stock, availability or shop.
-          imageSource: imageSource ?? null,
-          image: removeLegacyImage ? null : undefined,
-          availability: formData.availability && stock > 0,
-        },
-        imageFile ?? undefined,
-        setUploadProgress,
-      );
+      const result = await updateProduct(product.id, {
+        name: formData.name.trim(),
+        description: formData.description.trim(),
+        category: formData.category,
+        price,
+        stock,
+        unit: formData.unit.trim() || undefined,
+        // Changing the image never touches id, stock, availability or shop.
+        imageSource: imageSource ?? null,
+        image: removeLegacyImage ? null : undefined,
+        availability: formData.availability && stock > 0,
+      });
 
       toast.success("Product Updated", {
         description:
@@ -302,14 +299,7 @@ function EditProduct() {
               setImageSource(source);
               setRemoveLegacyImage(false);
             }}
-            selectedFile={imageFile}
-            onSelectedFileChange={(file) => {
-              setImageFile(file);
-              setUploadProgress(null);
-              if (file) setRemoveLegacyImage(false);
-            }}
             onRemoveImage={() => setRemoveLegacyImage(true)}
-            uploadProgress={imageFile ? uploadProgress : undefined}
             disabled={loading}
           />
 

@@ -48,6 +48,7 @@ function ProductPage() {
         src={product.image}
         imageSource={product.imageSource}
         alt={product.name}
+        name={product.name}
         category={product.category}
         className="mb-5 aspect-square w-full sm:aspect-video"
         iconClassName="h-16 w-16"
